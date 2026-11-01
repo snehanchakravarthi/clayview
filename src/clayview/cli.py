@@ -5,12 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from clayview.core.camera import DEFAULT_VFOV_DEG, horizon_from_pitch
 from clayview.core.projection import ProjectionConfig
-from clayview.core.scene import CameraOptions, build_scene
+from clayview.core.scene import CameraOptions, RawClip, build_scene
 from clayview.core.stats import summarize
+
+if TYPE_CHECKING:
+    from clayview.pipeline import DetectionOptions
 
 BROWSER_VIDEO_SUFFIXES = {".mp4", ".m4v", ".mov", ".webm"}
 
@@ -28,6 +33,11 @@ def main(argv: list[str] | None = None) -> int:
     process.add_argument("--stride", type=int, default=1, help="process every Nth frame")
     process.add_argument("--limit", type=float, help="stop after this many seconds")
     process.add_argument("--fresh", action="store_true", help="ignore cached detections")
+    process.add_argument(
+        "--no-views",
+        action="store_true",
+        help="skip the car view model; heading gets less accurate",
+    )
     process.add_argument(
         "--height", default="auto", help="camera height in metres, or auto (from car widths)"
     )
@@ -60,6 +70,30 @@ def main(argv: list[str] | None = None) -> int:
     return _process(args)
 
 
+def _with_views(
+    raw: RawClip,
+    video: Path,
+    options: DetectionOptions,
+    raw_path: Path,
+    key: str,
+    fresh: bool,
+) -> RawClip:
+    from clayview.detect import pick_device
+    from clayview.orient import MODEL_NAME, SAMPLE_EVERY, collect_views
+    from clayview.pipeline import load_views, save_views
+
+    views_path = raw_path.with_name(raw_path.name.removesuffix(".raw.npz") + ".views.npz")
+    views_key = json.dumps([key, MODEL_NAME, SAMPLE_EVERY])
+    views = None if fresh else load_views(views_path, views_key)
+    if views is None:
+        device = pick_device(options.device)
+        views = collect_views(video, raw.detections, options.stride, device)
+        save_views(views_path, views, views_key)
+    else:
+        print(f"reusing car views from {views_path}")
+    return replace(raw, views=views, model={**raw.model, "viewModel": MODEL_NAME})
+
+
 def _process(args: argparse.Namespace) -> int:
     from clayview.pipeline import DetectionOptions, cache_key, extract, load_raw, save_raw
     from clayview.video import probe
@@ -85,6 +119,9 @@ def _process(args: argparse.Namespace) -> int:
         save_raw(raw_path, raw, key)
     else:
         print(f"reusing detections from {raw_path} (--fresh to redo them)")
+
+    if not args.no_views:
+        raw = _with_views(raw, video, options, raw_path, key, args.fresh)
 
     info = probe(video)
     camera = _camera_options(args, info.height)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -22,7 +22,7 @@ from clayview.core.horizon import (
     vehicle_samples,
 )
 from clayview.core.projection import ProjectionConfig
-from clayview.core.tracks import Segment, TrackConfig, WorldTrack, build_tracks
+from clayview.core.tracks import Segment, TrackConfig, Views, WorldTrack, build_tracks
 from clayview.core.types import Detection, EgoStep, FlowPair
 
 SCENE_VERSION = 1
@@ -48,6 +48,7 @@ class RawClip:
     detections: Sequence[Detection]
     flow: Sequence[FlowPair]
     model: dict[str, Any]
+    views: Views = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -171,6 +172,7 @@ def build_scene(
         ego_steps,
         track_config=track_config,
         projection_config=projection_config,
+        views=raw.views,
     )
     return _to_json(raw, segments, calibrations, coverage, ego_steps, tracks, opts)
 

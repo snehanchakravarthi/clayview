@@ -5,7 +5,7 @@ from __future__ import annotations
 import itertools
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -105,6 +105,27 @@ def extract(
             "stride": options.stride,
         },
     )
+
+
+def save_views(path: Path, views: Mapping[tuple[int, int], Sequence[float]], key: str) -> None:
+    keys = np.array(list(views), dtype=np.int32).reshape(-1, 2)
+    values = np.array(list(views.values()), dtype=np.float32).reshape(len(keys), -1)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        np.savez_compressed(handle, key=np.array(key), keys=keys, values=values)
+
+
+def load_views(path: Path, key: str) -> dict[tuple[int, int], tuple[float, ...]] | None:
+    """Load cached views, or None if they came from a different run."""
+    if not path.exists():
+        return None
+    with np.load(path) as data:
+        if str(data["key"]) != key:
+            return None
+        return {
+            (int(frame), int(track)): tuple(float(value) for value in row)
+            for (frame, track), row in zip(data["keys"], data["values"], strict=True)
+        }
 
 
 def _resolve_weights(weights: str) -> str:

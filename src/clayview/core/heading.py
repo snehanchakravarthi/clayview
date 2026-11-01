@@ -8,6 +8,8 @@ consistent answer:
 - motion: the direction of travel, when the object is really moving. The only cue that knows front
   from back.
 - road: vehicles tend to line up with the road, and ego's own path says where the road goes.
+- view: an optional image model reads the angle a car is seen from. It's the only cue that knows
+  which end of a parked car is the front.
 
 Headings here live in a track's fixed frame: ego's direction when the track began, so a parked car
 keeps one number while ego turns around it.
@@ -30,6 +32,12 @@ ANGLES = -math.pi + BIN_RAD * np.arange(BINS)
 # Box width over height from directly behind and from the side. Car values come from real boxes of
 # cars with a clean direction of travel. One class spans real shapes: a side-on hatchback and an
 # angled sedan can have the same box, and that doubt should stay visible to the other cues.
+# The image model's view classes run clockwise: bin 4 sees the car's rear, bin 0 its front, and
+# bins 5 and 3 see it pointing away to the left and to the right.
+VIEW_BINS = 8
+VIEW_REAR_BIN = 4
+VIEW_BIN_RAD = 2.0 * math.pi / VIEW_BINS
+
 SHAPES: dict[str, tuple[tuple[float, float], ...]] = {
     "car": ((1.4, 2.1), (1.4, 2.7), (1.2, 2.3)),
     "truck": ((0.8, 1.9), (0.8, 3.1)),
@@ -52,6 +60,8 @@ class HeadingConfig:
     shape_floor: float = 8.0  # one bad box can't cost a heading more than this
     motion_kappa: float = 12.0  # strongest pull of a clean direction of travel
     road_kappa: float = 1.5
+    view_weight: float = 0.5  # views are sampled, so this counts per view, not per second
+    view_floor: float = 0.03  # the model is confidently wrong on hidden cars; limit what that costs
     road_reach_m: float = 18.0  # the road cue fades for objects this far from ego's path
     tie_break: float = 0.001  # with no evidence at all, face the way ego does
     turn_cost_per_rad: float = 0.5
@@ -69,6 +79,7 @@ class HeadingCues:
     motion_certainty: float  # speed over its uncertainty
     road: float | None  # direction of the road beside the object
     road_offset_m: float  # how far the object is from ego's path
+    view: Sequence[float] | None = None  # image model output, see VIEW_BINS
 
 
 class EgoPath:
@@ -129,12 +140,27 @@ def shape_scores(
     return np.maximum(best, -config.shape_floor)
 
 
+def view_scores(view: Sequence[float], bearing: float, yaw: float, floor: float) -> np.ndarray:
+    """Log likelihood of each heading, from the image model's eight view probabilities."""
+    seen_from = ANGLES - yaw - bearing
+    position = (VIEW_REAR_BIN - seen_from / VIEW_BIN_RAD) % VIEW_BINS
+    lower = np.floor(position).astype(int) % VIEW_BINS
+    upper = (lower + 1) % VIEW_BINS
+    share = position - np.floor(position)
+    logs = np.log(np.maximum(np.asarray(view, dtype=float), floor))
+    return (1.0 - share) * logs[lower] + share * logs[upper]
+
+
 def frame_scores(
     cue: HeadingCues, class_name: str, weight: float, can_turn: bool, config: HeadingConfig
 ) -> np.ndarray:
     scores = np.zeros(BINS)
     if cue.box is not None:
         scores += weight * shape_scores(cue.box, cue.bearing, cue.yaw, class_name, config)
+    if cue.view is not None:
+        scores += config.view_weight * view_scores(
+            cue.view, cue.bearing, cue.yaw, config.view_floor
+        )
     if cue.motion is not None:
         kappa = min(cue.motion_certainty * cue.motion_certainty, config.motion_kappa)
         scores += weight * kappa * np.cos(ANGLES - cue.motion)

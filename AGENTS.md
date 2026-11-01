@@ -46,11 +46,12 @@ src/clayview/
     ego.py         ego speed and yaw from road flow
     horizon.py     per-shot calibration: FoE, car widths, hood row
     cuts.py        hard-cut detection
-    heading.py     heading from box shape, motion and ego's path
+    heading.py     heading from box shape, motion, ego's path and car views
     tracks.py      stitching, filtering, confidence, flags
     scene.py       builds the scene file
     stats.py       `clayview stats`
   detect.py      the only module that imports Ultralytics
+  orient.py      the car view model, the only module that imports timm
   video.py       OpenCV: frames, cut thumbnails, background flow
   pipeline.py    detection pass and its cache
   cli.py

@@ -9,6 +9,7 @@ from clayview.core.heading import (
     seen_aspect,
     shape_scores,
     solve_heading,
+    view_scores,
 )
 from clayview.core.tracks import Segment, build_tracks
 from clayview.core.types import Box, Detection, EgoStep
@@ -93,6 +94,43 @@ def test_with_no_evidence_it_faces_the_road() -> None:
     solved = solve_heading([cue(None, 0.0, road=0.5) for _ in range(30)], [DT] * 29, "car", False)
     assert len(set(solved)) == 1
     assert angle_error(solved[0], 0.5) < math.radians(3.0)
+
+
+def one_view(bin_index: int) -> list[float]:
+    return [0.93 if index == bin_index else 0.01 for index in range(8)]
+
+
+def test_view_bins_mean_rear_front_and_sides() -> None:
+    expected = {
+        4: 0.0,
+        0: math.pi,
+        5: -math.pi / 4,
+        3: math.pi / 4,
+        6: -math.pi / 2,
+        2: math.pi / 2,
+    }
+    for bin_index, seen_from in expected.items():
+        scores = view_scores(one_view(bin_index), 0.0, 0.0, 0.03)
+        assert angle_error(float(ANGLES[int(scores.argmax())]), seen_from) < math.radians(4.0)
+
+
+def test_view_follows_the_ray_to_the_object() -> None:
+    bearing = math.radians(30.0)
+    scores = view_scores(one_view(4), bearing, 0.0, 0.03)
+    assert angle_error(float(ANGLES[int(scores.argmax())]), bearing) < math.radians(4.0)
+
+
+def test_views_tell_a_parked_cars_front_from_its_back() -> None:
+    cues = [cue(seen_box(0.0, 20.0, math.pi), 0.0, view=one_view(0), road=0.0) for _ in range(20)]
+    solved = solve_heading(cues, [DT] * 19, "car", False)
+    assert angle_error(solved[0], math.pi) < math.radians(8.0)
+
+
+def test_one_wrong_view_cant_turn_a_car_around() -> None:
+    cues = [cue(None, 0.0, view=one_view(4), road=0.0) for _ in range(20)]
+    cues[3] = cue(None, 0.0, view=one_view(0), road=0.0)
+    solved = solve_heading(cues, [DT] * 19, "car", False)
+    assert angle_error(solved[0], 0.0) < math.radians(8.0)
 
 
 def test_ego_path_finds_the_road_ahead_on_a_bend() -> None:

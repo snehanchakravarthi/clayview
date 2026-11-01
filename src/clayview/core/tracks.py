@@ -22,6 +22,9 @@ from clayview.core.types import (
     Observation,
 )
 
+# Image model output per detection, keyed by (frame, tracker id).
+Views = Mapping[tuple[int, int], Sequence[float]]
+
 VEHICLES = frozenset({"car", "truck", "bus"})
 RIDERS = frozenset({"motorcycle", "bicycle"})
 
@@ -81,6 +84,7 @@ def build_tracks(
     projection_config: ProjectionConfig | None = None,
     filter_config: FilterConfig | None = None,
     heading_config: HeadingConfig | None = None,
+    views: Views | None = None,
 ) -> list[WorldTrack]:
     """Project, smooth and filter. Output is ordered by first appearance, with clean ids."""
     cfg = track_config or TrackConfig()
@@ -105,7 +109,16 @@ def build_tracks(
         path = EgoPath(ego_steps, segment.start_frame, segment.end_frame)
         for fragment in stitch_fragments(in_segment, times, cfg.stitch_gap_s):
             track = _build_one(
-                fragment, segment, path, times, ego_steps, cfg, pcfg, hcfg, filter_config
+                fragment,
+                segment,
+                path,
+                times,
+                ego_steps,
+                cfg,
+                pcfg,
+                hcfg,
+                filter_config,
+                views or {},
             )
             if track is not None:
                 built.append(track)
@@ -220,6 +233,7 @@ def _build_one(
     pcfg: ProjectionConfig,
     hcfg: HeadingConfig,
     filter_config: FilterConfig | None,
+    views: Views,
 ) -> tuple[int, str, int, tuple[ObjectSample, ...]] | None:
     camera = segment.camera
     class_name = _vote_class(detections)
@@ -258,7 +272,14 @@ def _build_one(
     whole_boxes = {
         frame: hit[0].box for frame, hit in observed.items() if FLAG_TRUNCATED not in hit[1].flags
     }
-    headings = _headings(states, steps, class_name, times, frames, whole_boxes, path, cfg, hcfg)
+    frame_views = {
+        frame: views[(frame, observed[frame][0].track_id)]
+        for frame in whole_boxes
+        if (frame, observed[frame][0].track_id) in views
+    }
+    headings = _headings(
+        states, steps, class_name, times, frames, whole_boxes, frame_views, path, cfg, hcfg
+    )
 
     samples: list[ObjectSample] = []
     confidence = observed[first_frame][0].confidence
@@ -325,6 +346,7 @@ def _headings(
     times: Sequence[float],
     frames: Sequence[int],
     boxes: Mapping[int, Box],
+    views: Mapping[int, Sequence[float]],
     path: EgoPath,
     cfg: TrackConfig,
     hcfg: HeadingConfig,
@@ -376,6 +398,7 @@ def _headings(
                 motion_certainty=speed / max(state.sigma_speed, 0.05),
                 road=road - first_road if class_name != "person" else None,
                 road_offset_m=road_offset,
+                view=views.get(frames[index]) if class_name == "car" else None,
             )
         )
 

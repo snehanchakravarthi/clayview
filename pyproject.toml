@@ -8,6 +8,7 @@ dependencies = [
     "lap>=0.5.12",
     "numpy>=1.26",
     "opencv-python>=4.10",
+    "timm>=1.0.30",
     "ultralytics>=8.3.0",
 ]
 
