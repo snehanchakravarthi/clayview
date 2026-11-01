@@ -4,7 +4,7 @@ A Tesla-style clay 3D view of the traffic around a car, built from camera footag
 
 It's a toy. It doesn't drive anything and shouldn't be trusted for anything.
 
-Today it works on recorded clips only. The next phases, live cameras on a Pi, aren't built. The camera placement study will live in `docs/camera-layout/`.
+Today it works on recorded clips only. The next phases, live cameras on a Pi, aren't built. The camera placement study and its interactive planner are in [`docs/camera-layout/`](docs/camera-layout/README.md).
 
 ## Setup
 

@@ -1,0 +1,793 @@
+<title>Clayview Camera Planner</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap">
+<style>
+/* Layout concept: a car-design package drawing. One big plan view, a data strip beside it, reference tables below. */
+:root {
+  --bg: #EDF0EF; --surface: #F8FAF9; --ink: #1B2326; --muted: #566368; --line: #CDD4D3; --grid: #DDE2E1;
+  --accent: #C94A14; --accent-soft: #C94A1426;
+  --cov1: #CBE4DF; --cov2: #6AB7AC; --cov3: #0F6F6C;
+  --good: #1B7A58; --warn: #9A6410; --bad: #B8352A;
+  --clay: #D9D6CF; --clay-edge: #8D8B85;
+  --display: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  --body: 'Barlow', 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'DM Mono', ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #13181A; --surface: #1B2224; --ink: #E6ECEA; --muted: #9AA7AA; --line: #303B3E; --grid: #252E31;
+  --accent: #FF8B4D; --accent-soft: #FF8B4D2E;
+  --cov1: #1F4A4B; --cov2: #2E8B85; --cov3: #8ADFD2;
+  --good: #5CCB9F; --warn: #E9B55C; --bad: #F2857A;
+  --clay: #4A4F50; --clay-edge: #8E9596; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #13181A; --surface: #1B2224; --ink: #E6ECEA; --muted: #9AA7AA; --line: #303B3E; --grid: #252E31;
+  --accent: #FF8B4D; --accent-soft: #FF8B4D2E;
+  --cov1: #1F4A4B; --cov2: #2E8B85; --cov3: #8ADFD2;
+  --good: #5CCB9F; --warn: #E9B55C; --bad: #F2857A;
+  --clay: #4A4F50; --clay-edge: #8E9596; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; margin: 0; text-wrap: balance; line-height: 1.12; }
+h1 { font-size: clamp(30px, 4.5vw, 44px); letter-spacing: .005em; }
+h2 { font-size: 26px; }
+h3 { font-size: 18px; }
+p { margin: 0; max-width: 68ch; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.label { font-family: var(--display); font-weight: 600; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+header { display: grid; gap: 20px; }
+.findings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
+.findings > div { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.findings b { font-family: var(--display); font-size: 18px; font-weight: 600; line-height: 1.2; }
+section { display: grid; gap: 14px; min-width: 0; }
+
+.rigs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+.rig { flex: 0 0 112px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 8px 6px 7px; display: grid; gap: 3px; justify-items: center; cursor: pointer; font: inherit; border-radius: 3px; }
+.rig:hover { border-color: var(--muted); }
+.rig[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.rig svg { width: 64px; height: 64px; display: block; }
+.rig span { font-family: var(--display); font-weight: 600; font-size: 14px; line-height: 1.1; text-align: center; }
+.rig em { font-style: normal; font-size: 11px; color: var(--accent); font-family: var(--display); font-weight: 600; letter-spacing: .03em; min-height: 13px; line-height: 13px; }
+
+.tool { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+.stage { display: grid; gap: 10px; min-width: 0; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.field { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; min-width: 0; }
+select, .seg button, .btn { font: inherit; font-size: 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 3px; padding: 5px 9px; cursor: pointer; }
+select:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.seg { display: inline-flex; flex-wrap: wrap; max-width: 100%; row-gap: 4px; }
+.seg button { border-radius: 0; margin-left: -1px; white-space: nowrap; }
+.seg button:first-child { border-radius: 3px 0 0 3px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 3px 3px 0; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); position: relative; }
+.btn:hover, select:hover { border-color: var(--muted); }
+canvas#plan { width: 100%; aspect-ratio: 1 / 0.96; display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 3px; touch-action: pan-y; cursor: default; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 16px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 1px solid var(--line); }
+.leg-blind { background: repeating-linear-gradient(135deg, var(--surface) 0 3px, var(--line) 3px 4px); }
+
+.panel { display: grid; gap: 18px; min-width: 0; }
+.panel > div { display: grid; gap: 8px; min-width: 0; }
+.ring { display: grid; grid-template-columns: 84px minmax(0, 1fr) 62px; gap: 8px; align-items: center; font-size: 14px; }
+.track { height: 10px; background: var(--grid); border-radius: 1px; position: relative; overflow: hidden; }
+.track i { position: absolute; left: 0; top: 0; bottom: 0; }
+.track .seen { background: var(--cov1); }
+.track .placed { background: var(--cov3); }
+.num { text-align: right; font-family: var(--mono); font-size: 13px; }
+.camchips { display: flex; flex-wrap: wrap; gap: 5px; }
+.camchips button { font: inherit; font-size: 13px; padding: 3px 7px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 3px; cursor: pointer; }
+.camchips button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.slider { display: grid; grid-template-columns: 74px minmax(0, 1fr) 54px; gap: 8px; align-items: center; font-size: 14px; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; font-size: 14px; }
+.kv span:nth-child(even) { font-family: var(--mono); font-size: 13px; text-align: right; }
+.objs { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.objs li { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 8px; font-size: 14px; align-items: start; }
+.objs small { display: block; color: var(--muted); font-size: 12px; line-height: 1.3; }
+.pill { font-family: var(--display); font-weight: 600; font-size: 13px; display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.pill.placed, .pill.ok { color: var(--good); }
+.pill.rough, .pill.warnp { color: var(--warn); }
+.pill.hidden, .pill.badp { color: var(--bad); }
+
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th { font-family: var(--display); font-weight: 600; font-size: 13px; letter-spacing: .03em; color: var(--muted); text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+td { padding: 6px 10px; border-bottom: 1px solid var(--grid); text-align: right; font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; font-family: var(--body); font-size: 14px; }
+th:first-child { font-family: var(--display); font-size: 13px; }
+tbody tr[data-rig] { cursor: pointer; }
+tbody tr[data-rig]:hover td { background: var(--accent-soft); }
+tbody tr.active td { background: var(--accent-soft); }
+td.cell { min-width: 64px; }
+td.cell .mini { display: block; height: 3px; background: var(--grid); margin-top: 3px; }
+td.cell .mini i { display: block; height: 100%; background: var(--cov3); }
+td.left, th.left { text-align: left; font-family: var(--body); white-space: normal; min-width: 180px; }
+.lensbar { display: inline-block; height: 9px; background: var(--cov3); vertical-align: 0; border-radius: 0 2px 2px 0; }
+
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 3px; overflow-x: auto; }
+.diagram svg { display: block; width: 100%; min-width: 520px; height: auto; }
+.diagram.plain svg { min-width: 0; }
+.notes { display: grid; gap: 10px; }
+.notes p { max-width: none; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+
+@media (max-width: 980px) {
+  .tool, .two { grid-template-columns: minmax(0, 1fr); }
+  .findings { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+}
+@media (prefers-reduced-motion: no-preference) { .rig, .btn { transition: border-color .12s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div style="display:grid;gap:8px">
+      <h1>Clayview camera planner</h1>
+      <p class="muted">Pick a camera layout and see what the car can see, how well it can place what it sees, and how the wires run. Drag cameras and traffic on the plan to test your own ideas.</p>
+    </div>
+    <div class="findings">
+      <div><b>Height beats camera count</b><span class="muted">Six cameras with four on the roof place <span class="mono">88%</span> of mid-range cars. Eight lower cameras in a Tesla layout place <span class="mono">59%</span> with this simple flat-road method.</span></div>
+      <div><b>Doors need low fisheye lenses</b><span class="muted">Swapping two roof cameras for <span class="mono">160°</span> mirror lenses takes door-zone placement from <span class="mono">21%</span> to <span class="mono">72%</span>.</span></div>
+      <div><b>Past 40 m you can see, not place</b><span class="muted">No rig here places more than <span class="mono">14%</span> of the far ring. Fade distant traffic in the clay view instead of faking accuracy.</span></div>
+    </div>
+  </header>
+
+  <section aria-label="Camera layouts">
+    <div class="rigs" id="rigs"></div>
+  </section>
+
+  <section class="tool">
+    <div class="stage">
+      <div class="bar">
+        <span class="field"><span class="label">Scene</span><span class="seg" id="scenes"></span></span>
+        <span class="field"><span class="label">View</span><span class="seg" id="zooms"></span></span>
+      </div>
+      <canvas id="plan" role="img" aria-label="Top-down plan of the car with camera view cones and a coverage map"></canvas>
+      <div class="legend">
+        <span><i class="leg-blind"></i>Blind</span>
+        <span><i style="background:var(--cov1)"></i>Seen, position is a guess</span>
+        <span><i style="background:var(--cov2)"></i>Placed by one camera</span>
+        <span><i style="background:var(--cov3)"></i>Placed and cross-checked by two</span>
+      </div>
+    </div>
+
+    <aside class="panel">
+      <div>
+        <h3 id="rigName"></h3>
+        <p class="muted" id="rigBlurb" style="font-size:14px"></p>
+        <div class="bar" style="gap:8px">
+          <span class="field"><span class="label">Vehicle</span><select id="vehicle" aria-label="Vehicle"></select></span>
+          <span class="field"><span class="label">Coverage for</span><select id="klass" aria-label="Object type shown on the map"></select></span>
+        </div>
+      </div>
+      <div id="ringBox"><span class="label">Share of each ring</span><div id="rings" style="display:grid;gap:5px"></div></div>
+      <div id="sceneBox" hidden><span class="label" id="sceneTitle"></span><ul class="objs" id="objs"></ul></div>
+      <div>
+        <span class="label">Cameras</span>
+        <div class="camchips" id="camchips"></div>
+        <div class="bar" style="gap:6px">
+          <button class="btn" id="addCam" type="button">Add camera</button>
+          <button class="btn" id="delCam" type="button">Remove</button>
+          <button class="btn" id="resetRig" type="button">Reset rig</button>
+        </div>
+      </div>
+      <div id="camEditor">
+        <div class="slider"><label for="sYaw">Direction</label><input id="sYaw" type="range" min="-180" max="180" step="5"><span class="num" id="vYaw"></span></div>
+        <div class="slider"><label for="sFov">Lens</label><input id="sFov" type="range" min="20" max="190" step="5"><span class="num" id="vFov"></span></div>
+        <div class="slider"><label for="sPitch">Tilt down</label><input id="sPitch" type="range" min="0" max="40" step="1"><span class="num" id="vPitch"></span></div>
+        <div class="slider"><label for="sZ">Height</label><input id="sZ" type="range" min="0.3" max="2.3" step="0.05"><span class="num" id="vZ"></span></div>
+        <div class="slider"><label for="sMount">Mount</label><select id="sMount" style="grid-column: span 2"><option value="cabin">Inside the glass</option><option value="exterior">Outside the body</option><option value="roof">On the roof</option></select></div>
+        <div class="kv" id="camStats"></div>
+      </div>
+    </aside>
+  </section>
+
+  <section>
+    <div style="display:grid;gap:4px"><h2>From the side</h2><p class="muted">The selected camera, unfolded along its viewing direction. The ground-contact method needs the tyres in frame, so the first visible patch of road is the number to watch.</p></div>
+    <div class="diagram" id="sideView"></div>
+  </section>
+
+  <section>
+    <div class="bar" style="justify-content:space-between">
+      <div style="display:grid;gap:4px"><h2>Every layout compared</h2><p class="muted">Percent of each ring where a car is placed within 15% of its distance (0.5 m when close). Select a row to load it.</p></div>
+      <div class="bar">
+        <span class="field"><span class="label">Detector input</span><select id="inputPx" aria-label="Detector input width"><option value="640">640 px</option><option value="960">960 px</option><option value="1280">1280 px</option></select></span>
+        <span class="field"><span class="label">Tilt error</span><select id="pitchErr" aria-label="Road slope and body tilt error"><option value="0.1">0.1°</option><option value="0.25">0.25° with IMU</option><option value="0.5">0.5°</option><option value="1">1° no IMU</option></select></span>
+      </div>
+    </div>
+    <div class="scroll"><table id="compare"></table></div>
+  </section>
+
+  <section>
+    <div style="display:grid;gap:4px"><h2>What each lens gives you</h2><p class="muted">A wider lens spreads the same 640 detector pixels over more of the world, so range falls as coverage grows. Range is where an object is still 16 detector pixels wide.</p></div>
+    <div class="scroll"><table id="lenses"></table></div>
+  </section>
+
+  <section>
+    <div class="bar" style="justify-content:space-between">
+      <div style="display:grid;gap:4px"><h2>Where the computer and wires go</h2><p class="muted">Uses the layout above. Cable lengths are estimates for routes along the door seals and sills.</p></div>
+      <div class="bar">
+        <span class="field"><span class="label">Computer</span><select id="box" aria-label="Computer location"></select></span>
+        <span class="field"><span class="label">Link</span><select id="link" aria-label="Camera link"></select></span>
+      </div>
+    </div>
+    <div class="two">
+      <div class="diagram plain" id="wiring"></div>
+      <div class="notes">
+        <div class="scroll"><table id="runs"></table></div>
+        <p class="muted" id="boxNote" style="font-size:14px"></p>
+      </div>
+    </div>
+    <div class="two">
+      <div class="notes">
+        <h3>Compute</h3>
+        <ul class="plain">
+          <li><b>Raspberry Pi 5 with the 26 TOPS AI HAT+</b> is the main brain. It has four USB ports, two of them USB 3, so four cameras plug in directly and six need a powered hub.</li>
+          <li><b>Budget</b> is about <span class="mono">135</span> detections a second at 640 px: Hailo's <span class="mono">270</span> fps vendor figure, halved by my estimate for a real pipeline. Divide by the number of cameras.</li>
+          <li><b>The HAT uses the Pi's one PCIe slot</b>, so storage stays on the SD card unless you add a splitter. Mount the system read-only so power cuts can't corrupt it.</li>
+        </ul>
+      </div>
+      <div class="notes">
+        <h3>Power and heat</h3>
+        <ul class="plain">
+          <li><b>Take power from a switched fuse</b> with a fuse tap, so the Pi stops when the ignition does and can't drain the battery.</li>
+          <li><b>Use a 12 V to 5 V, 5 A converter.</b> On a smaller supply the Pi 5 limits USB devices to <span class="mono">600 mA</span> in total, which four cameras can exceed. Without USB-PD, set <span class="mono">usb_max_current_enable=1</span>.</li>
+          <li><b>Heat is the real enemy.</b> A parked car in the sun gets far hotter than the Pi likes. Keep it low and shaded, with the active cooler fitted.</li>
+          <li><b>Add a small backup supply</b> so it can shut down cleanly after the ignition goes off.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How the numbers are made</h2>
+    <div class="two">
+      <div class="notes">
+        <p>This is geometry, not a test on a real car. Each camera is reduced to a lens angle, a height, and a tilt. Seen means the object is in frame, clear of your own bodywork, and at least 16 detector pixels wide. Placed means the estimated error is under 15% of the distance, or 0.5 m when close.</p>
+        <p>Distance uses the best of three methods: tyre contact on a flat road, the object's apparent size, or two cameras crossing their sightlines. A car cut off by the frame loses the size and two-camera methods, which is why cars beside the doors are hard.</p>
+      </div>
+      <div class="notes">
+        <ul class="plain">
+          <li><b>Likely too harsh:</b> no tracking over time, which should smooth errors. No learned depth model, which is what makes Tesla's own layout work, so its score here is not a verdict on Tesla.</li>
+          <li><b>Likely too kind:</b> fisheye edges are stretched and YOLO is weaker there, so those frames may need splitting into flat views, which costs compute. Rain, night and dirty lenses are ignored.</li>
+          <li><b>My assumptions, not measurements:</b> the 16 px minimum, 2 px box noise, 0.25° tilt error, cable routes and parts costs. Test them on the real clip.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+/*MODEL*/
+</script>
+<script>
+(() => {
+const { DEG: D, VEHICLES, CLASSES, DEFAULT_OPTS, SCENARIOS, RIGS, RINGS, placeCam, focalPx, detectRange, inFrame, egoClear, evalPoint, evalScenario, ringScores, fpsPerCamera, cableRun } = MODEL;
+const $ = (id) => document.getElementById(id);
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const fmt = (v, n = 0) => (Number.isFinite(v) ? v.toFixed(n) : '—');
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+const state = {
+  rigId: 'roofmirror6', spec: null, edited: false, sel: 0, vehicle: 'suv', klass: 'car', scene: 'jam', zoom: 20,
+  objects: [], opts: { ...DEFAULT_OPTS }, box: 'seat', link: 'usb2',
+};
+const BOXES = {
+  seat: { label: 'Under front passenger seat', x: -0.1, y: 0.45, z: 0.25, note: 'Best default. It stays shaded, it’s out of sight, and every door seal is close. Check seat rails and airbag sensors first. In a right-hand-drive car the passenger side is the left.' },
+  glove: { label: 'Glovebox', x: 0.95, y: 0.45, z: 0.7, note: 'Short power run, but a closed box near the dashboard gets hot. Rear camera runs get long. Fine for a weekend test.' },
+  boot: { label: 'Boot', x: -1.85, y: 0, z: 0.6, note: 'Plenty of room and easy access, but every front camera becomes a long run and the power line crosses the whole car.' },
+};
+const LINKS = {
+  usb2: { label: 'USB 2', max: 5, note: 'cheap; passive limit 5 m' },
+  usb3: { label: 'USB 3', max: 3, note: 'passive limit about 3 m' },
+  poe: { label: 'Ethernet, PoE', max: 100, note: 'robust; needs a PoE switch, adds latency' },
+};
+const FUSE = { x: 0.95, y: -0.6, z: 0.4 };
+
+const veh = () => VEHICLES[state.vehicle];
+const placed = () => state.spec.map((c) => placeCam(c, veh()));
+const rigOf = (id) => RIGS.find((r) => r.id === id);
+
+function loadRig(id) {
+  state.rigId = id;
+  state.spec = clone(rigOf(id).cams);
+  state.edited = false;
+  state.sel = Math.min(state.sel, state.spec.length - 1);
+  renderAll();
+}
+function loadScene(id) {
+  state.scene = id;
+  state.objects = id === 'none' ? [] : clone(SCENARIOS[id].objects);
+  if (id === 'highway' && state.zoom < 50) state.zoom = 80;
+  if (id === 'junction' && state.zoom < 50) state.zoom = 50;
+  if ((id === 'jam' || id === 'parking') && state.zoom > 20) state.zoom = 20;
+  if (id === 'behind' && state.zoom < 50) state.zoom = 50;
+  renderAll();
+}
+
+/* ---------- plan view ---------- */
+const canvas = $('plan');
+const ctx = canvas.getContext('2d');
+const heat = document.createElement('canvas');
+let view = { w: 0, h: 0, s: 1, cx: 0, cy: 0 };
+const toScreen = (x, y) => [view.cx - y * view.s, view.cy - x * view.s];
+const toWorld = (sx, sy) => [(view.cy - sy) / view.s, (view.cx - sx) / view.s];
+
+function sizeCanvas() {
+  const r = canvas.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(r.width * dpr);
+  canvas.height = Math.round(r.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  view.w = r.width; view.h = r.height;
+  view.s = Math.min(r.width, r.height) / (2 * state.zoom);
+  view.cx = r.width / 2; view.cy = r.height / 2;
+}
+function hexRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function drawHeat(cams) {
+  const cell = 3;
+  const gw = Math.ceil(view.w / cell);
+  const gh = Math.ceil(view.h / cell);
+  heat.width = gw; heat.height = gh;
+  const hx = heat.getContext('2d');
+  const img = hx.createImageData(gw, gh);
+  const ramp = [null, hexRgb(css('--cov1')), hexRgb(css('--cov2')), hexRgb(css('--cov3'))];
+  for (let j = 0; j < gh; j++) {
+    for (let i = 0; i < gw; i++) {
+      const [wx, wy] = toWorld((i + 0.5) * cell, (j + 0.5) * cell);
+      const { level } = evalPoint(cams, wx, wy, state.klass, veh(), state.opts);
+      if (!level) continue;
+      const o = (j * gw + i) * 4;
+      img.data[o] = ramp[level][0]; img.data[o + 1] = ramp[level][1]; img.data[o + 2] = ramp[level][2]; img.data[o + 3] = 255;
+    }
+  }
+  hx.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(heat, 0, 0, gw * cell, gh * cell);
+}
+function hatch() {
+  ctx.save();
+  ctx.strokeStyle = css('--line');
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let d = -view.h; d < view.w; d += 9) { ctx.moveTo(d, view.h); ctx.lineTo(d + view.h, 0); }
+  ctx.stroke();
+  ctx.restore();
+}
+function rings() {
+  ctx.save();
+  ctx.strokeStyle = css('--ink'); ctx.globalAlpha = 0.28; ctx.lineWidth = 1;
+  ctx.fillStyle = css('--ink'); ctx.font = '11px "DM Mono", monospace';
+  const steps = [2, 5, 10, 20, 40, 80, 160].filter((m) => m < state.zoom * 1.35 && m > state.zoom / 9);
+  for (const m of steps) {
+    ctx.beginPath(); ctx.arc(view.cx, view.cy, m * view.s, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 0.75;
+  for (const m of steps) ctx.fillText(`${m} m`, view.cx + 4, view.cy - m * view.s - 3);
+  ctx.restore();
+}
+function drawCar() {
+  const v = veh();
+  const [x0, y0] = toScreen(v.L / 2, v.W / 2);
+  const w = v.W * view.s; const h = v.L * view.s;
+  ctx.save();
+  ctx.fillStyle = css('--clay'); ctx.strokeStyle = css('--clay-edge'); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(x0, y0, w, h, Math.min(w, h) * 0.18); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = css('--clay-edge'); ctx.globalAlpha = 0.45;
+  ctx.beginPath(); ctx.roundRect(x0 + w * 0.12, y0 + h * 0.3, w * 0.76, h * 0.5, w * 0.14); ctx.fill();
+  ctx.restore();
+}
+function drawCone(cam, i) {
+  const k = CLASSES[state.klass];
+  const r = detectRange(cam.fov, k.w, state.opts);
+  const [sx, sy] = toScreen(cam.x, cam.y);
+  const a0 = -Math.PI / 2 - cam.yawR - cam.fovR / 2; // canvas angle: x forward is up, y left is left
+  const a1 = -Math.PI / 2 - cam.yawR + cam.fovR / 2;
+  const sel = i === state.sel;
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.arc(sx, sy, r * view.s, a0, a1); ctx.closePath();
+  if (sel) { ctx.fillStyle = css('--accent-soft'); ctx.fill(); }
+  ctx.strokeStyle = sel ? css('--accent') : css('--ink');
+  ctx.globalAlpha = sel ? 1 : 0.42;
+  ctx.lineWidth = sel ? 1.75 : 1;
+  ctx.stroke();
+  ctx.restore();
+}
+function camHandles(cams) {
+  const big = view.s >= 9;
+  cams.forEach((cam, i) => {
+    const [sx, sy] = toScreen(cam.x, cam.y);
+    const sel = i === state.sel;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(sx, sy, sel ? 8 : big ? 7 : 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = sel ? css('--accent') : css('--surface'); ctx.strokeStyle = sel ? css('--surface') : css('--ink');
+    ctx.lineWidth = 1.5; ctx.fill(); ctx.stroke();
+    if (big || sel) {
+      ctx.fillStyle = sel ? css('--surface') : css('--ink');
+      ctx.font = '600 10px "DM Mono", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(i + 1), sx, sy + 0.5);
+    }
+    if (sel) {
+      const [hx, hy] = yawHandle(cam);
+      ctx.strokeStyle = css('--accent'); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(hx, hy); ctx.stroke();
+      ctx.fillStyle = css('--accent'); ctx.beginPath(); ctx.arc(hx, hy, 6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  });
+}
+function yawHandle(cam) {
+  const [sx, sy] = toScreen(cam.x, cam.y);
+  return [sx - Math.sin(cam.yawR) * 52, sy - Math.cos(cam.yawR) * 52];
+}
+function drawObjects(results) {
+  state.objects.forEach((ob, i) => {
+    const k = CLASSES[ob.c];
+    const r = results[i];
+    const [sx, sy] = toScreen(ob.x, ob.y);
+    const color = css(r.state === 'placed' ? '--good' : r.state === 'rough' ? '--warn' : '--bad');
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(-(ob.h || 0) * D);
+    const w = Math.max(k.w * view.s, 5); const l = Math.max(k.l * view.s, 6);
+    ctx.beginPath(); ctx.roundRect(-w / 2, -l / 2, w, l, Math.min(w, l) * 0.2);
+    ctx.fillStyle = css('--clay'); ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+    if (r.state === 'rough') ctx.setLineDash([5, 3]);
+    if (r.state === 'hidden') ctx.globalAlpha = 0.65;
+    ctx.fill(); ctx.stroke();
+    ctx.setLineDash([]);
+    if (r.state === 'hidden') {
+      ctx.beginPath(); ctx.moveTo(-w / 2, -l / 2); ctx.lineTo(w / 2, l / 2); ctx.moveTo(w / 2, -l / 2); ctx.lineTo(-w / 2, l / 2); ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+let frame = 0;
+function drawPlan() {
+  cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(() => {
+    sizeCanvas();
+    const cams = placed();
+    const results = evalScenario(state.objects, cams, veh(), state.opts);
+    ctx.clearRect(0, 0, view.w, view.h);
+    hatch();
+    drawHeat(cams);
+    rings();
+    cams.forEach(drawCone);
+    drawCar();
+    drawObjects(results);
+    camHandles(cams);
+  });
+}
+
+/* pointer: drag cameras, the direction handle, and traffic */
+let drag = null;
+function pick(px, py) {
+  const cams = placed();
+  const sel = cams[state.sel];
+  if (sel) {
+    const [hx, hy] = yawHandle(sel);
+    if (Math.hypot(px - hx, py - hy) < 12) return { type: 'yaw' };
+  }
+  for (let i = cams.length - 1; i >= 0; i--) {
+    const [sx, sy] = toScreen(cams[i].x, cams[i].y);
+    if (Math.hypot(px - sx, py - sy) < 11) return { type: 'cam', i };
+  }
+  const [wx, wy] = toWorld(px, py);
+  for (let i = state.objects.length - 1; i >= 0; i--) {
+    const ob = state.objects[i]; const k = CLASSES[ob.c];
+    const r = (ob.h || 0) * D;
+    const dx = wx - ob.x; const dy = wy - ob.y;
+    const lx = dx * Math.cos(r) + dy * Math.sin(r);
+    const ly = -dx * Math.sin(r) + dy * Math.cos(r);
+    if (Math.abs(lx) < Math.max(k.l / 2, 0.8) && Math.abs(ly) < Math.max(k.w / 2, 0.8)) return { type: 'obj', i };
+  }
+  return null;
+}
+canvas.addEventListener('pointerdown', (e) => {
+  const r = canvas.getBoundingClientRect();
+  const hit = pick(e.clientX - r.left, e.clientY - r.top);
+  if (!hit) return;
+  drag = hit;
+  canvas.setPointerCapture(e.pointerId);
+  if (hit.type === 'cam' && hit.i !== state.sel) { state.sel = hit.i; renderPanel(); renderSide(); drawPlan(); }
+});
+canvas.addEventListener('pointermove', (e) => {
+  const r = canvas.getBoundingClientRect();
+  const px = e.clientX - r.left; const py = e.clientY - r.top;
+  if (!drag) { canvas.style.cursor = pick(px, py) ? 'grab' : 'default'; return; }
+  const [wx, wy] = toWorld(px, py);
+  if (drag.type === 'yaw') {
+    const cam = placed()[state.sel];
+    const [sx, sy] = toScreen(cam.x, cam.y);
+    state.spec[state.sel].yaw = Math.round(Math.atan2(sx - px, sy - py) / D / 5) * 5;
+    markEdited();
+  } else if (drag.type === 'cam') {
+    const v = veh();
+    state.spec[drag.i].u = wx / (v.L / 2);
+    state.spec[drag.i].v = wy / (v.W / 2);
+    markEdited();
+  } else {
+    state.objects[drag.i].x = wx; state.objects[drag.i].y = wy;
+  }
+  renderLive();
+});
+const endDrag = () => { if (drag) { drag = null; renderTable(); } };
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+
+function markEdited() { state.edited = true; }
+
+/* ---------- side panel ---------- */
+function renderRigs() {
+  $('rigs').innerHTML = RIGS.map((r) => {
+    const v = VEHICLES.suv; const s = 64 / 9;
+    const cams = r.cams.map((c) => placeCam(c, v));
+    const cones = cams.map((c) => {
+      const R = 26; const cx = 32 - c.y * s; const cy = 32 - c.x * s;
+      const half = Math.min(c.fov, 179) * D / 2;
+      const p = (a) => [cx - Math.sin(a) * R, cy - Math.cos(a) * R];
+      const [ax, ay] = p(c.yawR - half); const [bx, by] = p(c.yawR + half);
+      return `<path d="M${cx.toFixed(1)} ${cy.toFixed(1)}L${ax.toFixed(1)} ${ay.toFixed(1)}A${R} ${R} 0 ${half > Math.PI / 2 ? 1 : 0} 0 ${bx.toFixed(1)} ${by.toFixed(1)}Z" fill="var(--cov2)" fill-opacity=".28" stroke="var(--cov3)" stroke-width=".7"/>`;
+    }).join('');
+    return `<button class="rig" type="button" data-rig="${r.id}" aria-pressed="${r.id === state.rigId}"><svg viewBox="0 0 64 64" aria-hidden="true">${cones}<rect x="${32 - v.W * s / 2}" y="${32 - v.L * s / 2}" width="${v.W * s}" height="${v.L * s}" rx="3" fill="var(--clay)" stroke="var(--clay-edge)" stroke-width=".7"/></svg><span>${r.short}</span><em>${r.tag || ''}</em></button>`;
+  }).join('');
+}
+function renderPanel() {
+  const rig = rigOf(state.rigId);
+  $('rigName').textContent = rig.name + (state.edited ? ' (edited)' : '');
+  $('rigBlurb').textContent = rig.blurb;
+  const cams = placed();
+  $('camchips').innerHTML = cams.map((c, i) => `<button type="button" data-cam="${i}" aria-pressed="${i === state.sel}">${i + 1} ${c.name}</button>`).join('');
+  const c = cams[state.sel];
+  $('delCam').disabled = cams.length < 2;
+  if (!c) return;
+  $('sYaw').value = c.yaw; $('vYaw').textContent = `${c.yaw}°`;
+  $('sFov').value = c.fov; $('vFov').textContent = `${c.fov}°`;
+  $('sPitch').value = c.pitch; $('vPitch').textContent = `${c.pitch}°`;
+  $('sZ').value = c.z; $('vZ').textContent = `${c.z.toFixed(2)} m`;
+  $('sMount').value = c.mount;
+  const from = roadFrom(c);
+  const err10 = hypotErr(c, 10);
+  $('camStats').innerHTML = `
+    <span>Finds a car out to</span><span>${fmt(detectRange(c.fov, 1.8, state.opts))} m</span>
+    <span>Finds a two-wheeler out to</span><span>${fmt(detectRange(c.fov, 0.75, state.opts))} m</span>
+    <span>Finds a person out to</span><span>${fmt(detectRange(c.fov, 0.5, state.opts))} m</span>
+    <span>Road visible from</span><span>${fmt(from, 1)} m</span>
+    <span>Tyre-contact error at 10 m</span><span>±${fmt(err10, 1)} m</span>`;
+}
+function hypotErr(c, d) {
+  const f = focalPx(c.fov, state.opts.inputPx);
+  return Math.hypot((d * d * state.opts.pxErr) / (f * c.z), (d * d * state.opts.pitchErrDeg * D) / c.z);
+}
+function roadFrom(c) {
+  for (let r = 0.1; r < 40; r += 0.05) {
+    const x = c.x + Math.cos(c.yawR) * r; const y = c.y + Math.sin(c.yawR) * r;
+    if (inFrame(c, x, y, 0) && egoClear(c, x, y, 0, veh())) return r;
+  }
+  return Infinity;
+}
+function renderRings() {
+  const scores = ringScores(placed(), state.klass, veh(), state.opts);
+  $('rings').innerHTML = scores.map((r) => `<div class="ring" title="${r.from}–${r.to} m from the body"><span>${r.label}</span><span class="track"><i class="seen" style="width:${r.seen * 100}%"></i><i class="placed" style="width:${r.placed * 100}%"></i></span><span class="num">${Math.round(r.placed * 100)}%</span></div>`).join('')
+    + `<p class="muted" style="font-size:12px">Dark bar is placed, pale bar is seen. Rings are 0–3, 3–15, 15–40 and 40–80 m from the body.</p>`;
+}
+const ICON = { placed: '✓', rough: '~', hidden: '×' };
+function renderObjects() {
+  const has = state.scene !== 'none';
+  $('sceneBox').hidden = !has;
+  if (!has) return;
+  const cams = placed();
+  const res = evalScenario(state.objects, cams, veh(), state.opts);
+  const n = res.filter((r) => r.state === 'placed').length;
+  $('sceneTitle').textContent = `${SCENARIOS[state.scene].label}: ${n} of ${res.length} placed`;
+  $('objs').innerHTML = state.objects.map((ob, i) => {
+    const r = res[i];
+    const label = r.state === 'hidden' ? 'Hidden' : `±${fmt(r.err, 1)} m`;
+    const who = r.seers.length ? r.seers.map((s) => s.name).join(', ') : 'No camera sees it';
+    return `<li><span class="pill ${r.state}">${ICON[r.state]} ${label}</span><span>${ob.name}<small>${fmt(r.d, 1)} m · ${who}</small></span></li>`;
+  }).join('');
+}
+
+/* ---------- side view ---------- */
+function renderSide() {
+  const c = placed()[state.sel];
+  if (!c) return;
+  const v = veh();
+  const W = 860; const H = 280; const ox = 150; const gy = 240; const sx = (W - ox - 30) / 16; const sz = 56;
+  const X = (m) => ox + m * sx; const Y = (m) => gy - m * sz;
+  const from = roadFrom(c);
+  const belt = 0.6 * v.H;
+  // Distance from the camera to the body edge along the viewing direction.
+  let edge = 0;
+  for (let r = 0; r < 6; r += 0.02) {
+    const x = c.x + Math.cos(c.yawR) * r; const y = c.y + Math.sin(c.yawR) * r;
+    if (Math.abs(x) <= v.L / 2 && Math.abs(y) <= v.W / 2) edge = r;
+  }
+  const bodyTop = c.mount === 'cabin' ? belt : v.H;
+  const lo = -(c.pitchR + c.vfovR / 2); const hi = -c.pitchR + c.vfovR / 2;
+  const rayEnd = (a) => {
+    const t = Math.tan(a);
+    let m = 16;
+    if (t < 0) m = Math.min(m, c.z / -t);
+    if (c.z + t * m > 2.7) m = (2.7 - c.z) / t;
+    return [m, c.z + t * m];
+  };
+  const bodyLimit = edge > 0.05 && bodyTop < c.z ? Math.atan2(bodyTop - c.z, edge) : -Math.PI / 2;
+  const [lm, lz] = rayEnd(Math.max(lo, bodyLimit)); const [hm, hz] = rayEnd(hi);
+  const wedge = [[0, c.z], [lm, lz]];
+  if (lm < 16) wedge.push([16, 0]);
+  if (hm < 16) wedge.push([16, 2.7]);
+  wedge.push([hm, hz]);
+  const carX = 10; const k = CLASSES.car;
+  const horizon = c.z;
+  const ticks = [0, 5, 10, 15].map((m) => `<line x1="${X(m)}" y1="${gy}" x2="${X(m)}" y2="${gy + 6}" stroke="var(--muted)"/><text x="${X(m)}" y="${gy + 20}" fill="var(--muted)" font-size="12" font-family="DM Mono, monospace" text-anchor="middle">${m} m</text>`).join('');
+  const reach = Number.isFinite(from) && from <= 16;
+  $('sideView').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Side view of ${c.name} showing its vertical field of view">
+    <polygon points="${wedge.map(([m, z]) => `${X(m)},${Y(z)}`).join(' ')}" fill="var(--accent-soft)"/>
+    <rect x="${X(-2.5)}" y="${Y(bodyTop)}" width="${(edge + 2.5) * sx}" height="${bodyTop * sz}" fill="var(--clay)" stroke="var(--clay-edge)" rx="4"/>
+    ${c.mount === 'cabin' ? `<rect x="${X(-2.5)}" y="${Y(v.H)}" width="${2.4 * sx}" height="${(v.H - belt) * sz}" fill="var(--clay)" stroke="var(--clay-edge)" opacity=".6" rx="4"/>` : ''}
+    <line x1="${X(-2.5)}" y1="${gy}" x2="${X(16)}" y2="${gy}" stroke="var(--ink)" stroke-width="1.5"/>
+    <line x1="${X(0)}" y1="${Y(horizon)}" x2="${X(16)}" y2="${Y(horizon)}" stroke="var(--muted)" stroke-dasharray="3 5"/>
+    <text x="${X(16) - 4}" y="${Y(horizon) - 6}" fill="var(--muted)" font-size="12" font-family="Barlow, sans-serif" text-anchor="end">Horizon</text>
+    <line x1="${X(0)}" y1="${Y(c.z)}" x2="${X(lm)}" y2="${Y(lz)}" stroke="var(--accent)" stroke-width="1.5"/>
+    <line x1="${X(0)}" y1="${Y(c.z)}" x2="${X(hm)}" y2="${Y(hz)}" stroke="var(--accent)" stroke-width="1.5"/>
+    <rect x="${X(carX)}" y="${Y(k.h)}" width="${k.l * sx * 0.75}" height="${k.h * sz}" rx="9" fill="var(--clay)" stroke="var(--clay-edge)"/>
+    <text x="${X(carX) + 6}" y="${Y(k.h) - 6}" fill="var(--muted)" font-size="12" font-family="Barlow, sans-serif">Car at 10 m</text>
+    <circle cx="${X(0)}" cy="${Y(c.z)}" r="6" fill="var(--accent)" stroke="var(--surface)" stroke-width="1.5"/>
+    <text x="${X(-2.5)}" y="${Y(Math.max(c.z, v.H)) - 12}" fill="var(--ink)" font-size="13" font-weight="600" font-family="Barlow, sans-serif">${c.name}, ${c.z.toFixed(2)} m up</text>
+    ${reach ? `<line x1="${X(from)}" y1="${gy - 16}" x2="${X(from)}" y2="${gy}" stroke="var(--accent)" stroke-width="2"/><text x="${X(from) + 6}" y="${gy - 8}" fill="var(--accent)" font-size="13" font-weight="600" font-family="Barlow, sans-serif">Road visible from ${from.toFixed(1)} m</text>` : `<text x="${X(1)}" y="${gy - 8}" fill="var(--accent)" font-size="13" font-weight="600" font-family="Barlow, sans-serif">Road never in frame on this axis</text>`}
+    ${ticks}
+  </svg>`;
+}
+
+/* ---------- tables ---------- */
+const PARTS_BASE = 260; const CABIN_CAM = 30; const OUT_CAM = 45;
+function cost(cams) { return PARTS_BASE + cams.reduce((t, c) => t + (c.mount === 'cabin' ? CABIN_CAM : OUT_CAM), 0); }
+function rowFor(name, id, cams, active) {
+  const s = ringScores(cams, 'car', veh(), state.opts);
+  let p = 0; let t = 0; let h = 0;
+  for (const sc of Object.values(SCENARIOS)) {
+    const r = evalScenario(sc.objects, cams, veh(), state.opts);
+    p += r.filter((x) => x.state === 'placed').length; h += r.filter((x) => x.state === 'hidden').length; t += r.length;
+  }
+  const out = cams.filter((c) => c.mount !== 'cabin').length;
+  const cells = s.map((r) => `<td class="cell">${Math.round(r.placed * 100)}%<span class="mini"><i style="width:${r.placed * 100}%"></i></span></td>`).join('');
+  return `<tr ${id ? `data-rig="${id}" tabindex="0"` : ''} class="${active ? 'active' : ''}"><td>${name}</td><td>${cams.length}</td>${cells}<td>${p}/${t}</td><td>${h}</td><td>${fmt(fpsPerCamera(cams.length, state.opts))}</td><td>${out}</td><td>${id === 'phone' ? '$0' : `~$${cost(cams)}`}</td></tr>`;
+}
+function renderTable() {
+  const head = `<thead><tr><th>Layout</th><th>Cameras</th>${RINGS.map((r) => `<th>${r.label}<br><span style="font-weight:500">${r.from < 1 ? 0 : r.from}–${r.to} m</span></th>`).join('')}<th>Scene objects<br>placed</th><th>Scene objects<br>hidden</th><th>Max fps<br>per camera</th><th>Cables<br>outside</th><th>Parts,<br>rough</th></tr></thead>`;
+  const rows = RIGS.map((r) => rowFor(r.name + (r.tag ? ` <span class="pill" style="color:var(--accent)">${r.tag}</span>` : ''), r.id, r.cams.map((c) => placeCam(c, veh())), !state.edited && r.id === state.rigId));
+  if (state.edited) rows.push(rowFor('Your edited layout', null, placed(), true));
+  $('compare').innerHTML = head + `<tbody>${rows.join('')}</tbody>`;
+}
+function renderLenses() {
+  const uses = { 190: 'Parking and door zone only', 160: 'Mirror lens: tyres and bikes beside you', 120: 'General purpose front or rear', 90: 'Good front default, side mirrors on a roof rig', 60: 'Rear long view', 45: 'Front long view for highways', 30: 'Tele. Very narrow, shows every bump' };
+  const scale = 138 * (state.opts.inputPx / 640);
+  const rows = Object.keys(uses).map(Number).sort((a, b) => b - a).map((fov) => {
+    const car = detectRange(fov, 1.8, state.opts);
+    return `<tr><td>${fov}°</td><td>${fmt(focalPx(fov, state.opts.inputPx) * D, 1)}</td><td class="left"><span class="lensbar" style="width:${(car / Math.max(scale, 138 * 2)) * 240}px"></span> <span class="mono">${fmt(car)} m</span></td><td>${fmt(detectRange(fov, 0.75, state.opts))} m</td><td>${fmt(detectRange(fov, 0.5, state.opts))} m</td><td class="left">${uses[fov]}</td></tr>`;
+  });
+  $('lenses').innerHTML = `<thead><tr><th>Lens</th><th>Pixels per degree</th><th class="left">Car found out to</th><th>Two-wheeler</th><th>Person</th><th class="left">Good for</th></tr></thead><tbody>${rows.join('')}</tbody>`;
+}
+
+/* ---------- wiring ---------- */
+function renderWiring() {
+  const v = veh();
+  const W = 460; const H = 620; const s = 110; const ox = W / 2; const oy = H / 2 - 10;
+  const P = (x, y) => [ox - y * s, oy - x * s];
+  const box = BOXES[state.box];
+  const link = LINKS[state.link];
+  const cams = placed();
+  const [bx, by] = P(box.x, box.y);
+  const [fx, fy] = P(FUSE.x, FUSE.y);
+  const [conv1, conv2] = P((box.x + FUSE.x) / 2, FUSE.y * 0.2 + box.y * 0.8);
+  const sideOf = (c) => (Math.sign(c.y || box.y || 1)) * (v.W / 2 - 0.1);
+  const paths = cams.map((c) => {
+    const sy = sideOf(c);
+    const pts = [[c.x, c.y], [c.x, sy], [box.x, sy], [box.x, box.y]].map(([x, y]) => P(x, y).map((n) => n.toFixed(1)).join(','));
+    const over = cableRun(c, box, v) > link.max;
+    return `<polyline points="${pts.join(' ')}" fill="none" stroke="${over ? 'var(--bad)' : 'var(--cov3)'}" stroke-width="2" stroke-linejoin="round" ${c.mount === 'cabin' ? '' : 'stroke-dasharray="6 4"'}/>`;
+  }).join('');
+  const dots = cams.map((c, i) => {
+    const [x, y] = P(c.x, c.y);
+    const [lx, ly] = [x - Math.sin(c.yawR) * 26, y - Math.cos(c.yawR) * 26];
+    return `<line x1="${x}" y1="${y}" x2="${lx}" y2="${ly}" stroke="var(--accent)" stroke-width="2"/><circle cx="${x}" cy="${y}" r="10" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.5"/><text x="${x}" y="${y + 4}" text-anchor="middle" font-size="11" font-weight="500" font-family="DM Mono, monospace" fill="var(--ink)">${i + 1}</text>`;
+  }).join('');
+  const [cx0, cy0] = P(v.L / 2, v.W / 2);
+  const [rx, ry] = P(0.32 * v.L / 2, v.W / 2);
+  const roofH = ((0.32 + 0.95) * v.L / 2) * s;
+  $('wiring').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Top-down wiring plan">
+    <text x="${W / 2}" y="16" text-anchor="middle" font-size="12" fill="var(--muted)" font-family="Barlow, sans-serif">Front</text>
+    <rect x="${cx0}" y="${cy0}" width="${v.W * s}" height="${v.L * s}" rx="30" fill="var(--clay)" fill-opacity=".5" stroke="var(--clay-edge)"/>
+    <rect x="${rx + 8}" y="${ry}" width="${v.W * s - 16}" height="${roofH}" rx="16" fill="none" stroke="var(--clay-edge)" stroke-dasharray="3 4"/>
+    <polyline points="${fx},${fy} ${fx},${conv2} ${bx},${conv2} ${bx},${by}" fill="none" stroke="var(--warn)" stroke-width="2.5" stroke-linejoin="round"/>
+    ${paths}
+    <rect x="${fx - 24}" y="${fy - 11}" width="48" height="22" rx="3" fill="var(--surface)" stroke="var(--warn)"/><text x="${fx}" y="${fy + 4}" text-anchor="middle" font-size="11" fill="var(--ink)" font-family="Barlow, sans-serif">Fuse tap</text>
+    <rect x="${conv1 - 30}" y="${conv2 - 11}" width="60" height="22" rx="3" fill="var(--surface)" stroke="var(--warn)"/><text x="${conv1}" y="${conv2 + 4}" text-anchor="middle" font-size="11" fill="var(--ink)" font-family="Barlow, sans-serif">12 V to 5 V</text>
+    <rect x="${bx - 30}" y="${by - 17}" width="60" height="34" rx="4" fill="var(--ink)"/><text x="${bx}" y="${by - 2}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--bg)" font-family="Barlow, sans-serif">Pi 5</text><text x="${bx}" y="${by + 11}" text-anchor="middle" font-size="10" fill="var(--bg)" font-family="Barlow, sans-serif">+ Hailo-8</text>
+    ${dots}
+    <g font-size="12" font-family="Barlow, sans-serif" fill="var(--muted)">
+      <line x1="16" y1="${H - 44}" x2="44" y2="${H - 44}" stroke="var(--cov3)" stroke-width="2"/><text x="50" y="${H - 40}">Inside the cabin</text>
+      <line x1="16" y1="${H - 26}" x2="44" y2="${H - 26}" stroke="var(--cov3)" stroke-width="2" stroke-dasharray="6 4"/><text x="50" y="${H - 22}">Runs outside the body</text>
+      <line x1="16" y1="${H - 8}" x2="44" y2="${H - 8}" stroke="var(--warn)" stroke-width="2.5"/><text x="50" y="${H - 4}">Power</text>
+      <line x1="220" y1="${H - 44}" x2="248" y2="${H - 44}" stroke="var(--bad)" stroke-width="2"/><text x="254" y="${H - 40}">Over the ${link.label} limit</text>
+    </g>
+  </svg>`;
+  const rows = cams.map((c, i) => {
+    const m = cableRun(c, box, v);
+    const over = m > link.max;
+    const route = c.mount === 'cabin' ? 'Under trim' : c.mount === 'roof' ? 'Roof edge, door seal' : 'Mirror, door seal';
+    return `<tr><td>${i + 1} ${c.name}</td><td class="left">${route}</td><td>${m.toFixed(1)} m</td><td><span class="pill ${over ? 'badp' : 'ok'}">${over ? '× Active extension' : '✓ Fine'}</span></td></tr>`;
+  });
+  $('runs').innerHTML = `<thead><tr><th>Camera</th><th class="left">Route</th><th>Length</th><th>${link.label}</th></tr></thead><tbody>${rows.join('')}</tbody>`;
+  $('boxNote').textContent = `${box.note} ${link.label}: ${link.note}. Fuse box position varies by car, so check yours.`;
+}
+
+/* ---------- wiring up the controls ---------- */
+function renderControls() {
+  $('scenes').innerHTML = [['none', 'None'], ...Object.entries(SCENARIOS).map(([k, v]) => [k, v.label])].map(([k, l]) => `<button type="button" data-scene="${k}" aria-pressed="${k === state.scene}">${l}</button>`).join('');
+  $('zooms').innerHTML = [8, 20, 50, 80].map((z) => `<button type="button" data-zoom="${z}" aria-pressed="${z === state.zoom}">${z} m</button>`).join('');
+  document.querySelectorAll('#rigs .rig').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.rig === state.rigId && !state.edited)));
+}
+function renderLive() { renderPanel(); renderRings(); renderObjects(); renderSide(); drawPlan(); renderWiring(); }
+function renderAll() { renderControls(); renderLive(); renderTable(); renderLenses(); }
+
+$('vehicle').innerHTML = Object.entries(VEHICLES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+$('vehicle').value = state.vehicle;
+$('klass').innerHTML = ['car', 'bike', 'person'].map((k) => `<option value="${k}">${CLASSES[k].label}</option>`).join('');
+$('box').innerHTML = Object.entries(BOXES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+$('link').innerHTML = Object.entries(LINKS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+$('pitchErr').value = String(state.opts.pitchErrDeg);
+
+$('rigs').addEventListener('click', (e) => { const b = e.target.closest('[data-rig]'); if (b) loadRig(b.dataset.rig); });
+$('scenes').addEventListener('click', (e) => { const b = e.target.closest('[data-scene]'); if (b) loadScene(b.dataset.scene); });
+$('zooms').addEventListener('click', (e) => { const b = e.target.closest('[data-zoom]'); if (b) { state.zoom = Number(b.dataset.zoom); renderControls(); drawPlan(); } });
+$('camchips').addEventListener('click', (e) => { const b = e.target.closest('[data-cam]'); if (b) { state.sel = Number(b.dataset.cam); renderLive(); } });
+$('compare').addEventListener('click', (e) => { const r = e.target.closest('tr[data-rig]'); if (r) loadRig(r.dataset.rig); });
+$('compare').addEventListener('keydown', (e) => { const r = e.target.closest('tr[data-rig]'); if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); loadRig(r.dataset.rig); } });
+$('vehicle').addEventListener('change', (e) => { state.vehicle = e.target.value; renderAll(); });
+$('klass').addEventListener('change', (e) => { state.klass = e.target.value; renderLive(); });
+$('box').addEventListener('change', (e) => { state.box = e.target.value; renderWiring(); });
+$('link').addEventListener('change', (e) => { state.link = e.target.value; renderWiring(); });
+$('inputPx').addEventListener('change', (e) => { state.opts.inputPx = Number(e.target.value); renderAll(); });
+$('pitchErr').addEventListener('change', (e) => { state.opts.pitchErrDeg = Number(e.target.value); renderAll(); });
+
+const bind = (id, fn) => {
+  $(id).addEventListener('input', (e) => { fn(state.spec[state.sel], e.target.value); markEdited(); renderControls(); renderLive(); });
+  $(id).addEventListener('change', renderTable);
+};
+bind('sYaw', (c, v) => { c.yaw = Number(v); });
+bind('sFov', (c, v) => { c.fov = Number(v); });
+bind('sPitch', (c, v) => { c.pitch = Number(v); });
+bind('sZ', (c, v) => { c.zf = Number(v) / veh().H; });
+bind('sMount', (c, v) => { c.mount = v; });
+$('addCam').addEventListener('click', () => {
+  state.spec.push({ name: `Camera ${state.spec.length + 1}`, u: 0, v: 1.1, zf: 0.6, yaw: 90, fov: 120, pitch: 10, mount: 'exterior' });
+  state.sel = state.spec.length - 1; markEdited(); renderAll();
+});
+$('delCam').addEventListener('click', () => {
+  if (state.spec.length < 2) return;
+  state.spec.splice(state.sel, 1); state.sel = Math.max(0, state.sel - 1); markEdited(); renderAll();
+});
+$('resetRig').addEventListener('click', () => loadRig(state.rigId));
+
+window.addEventListener('resize', drawPlan);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderAll);
+new MutationObserver(renderAll).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+renderRigs();
+state.spec = clone(rigOf(state.rigId).cams);
+state.objects = clone(SCENARIOS[state.scene].objects);
+renderAll();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawPlan);
+})();
+</script>

@@ -6,7 +6,7 @@ clayview turns car camera footage into a Tesla-style live clay 3D view of the tr
 
 Phase 1, recorded clips only: no hardware and no live camera. A Python pipeline turns a clip into a scene file, and a static Three.js viewer plays that file beside the video. The projection and tracking core is kept free of YOLO and OpenCV so it can run on a Pi later.
 
-`docs/camera-layout/` will hold the camera placement study. Another agent owns that folder; leave it alone.
+`docs/camera-layout/` holds the camera placement study and its interactive planner. Edit `src/` there and rebuild `planner.html` with `node docs/camera-layout/src/build.js`.
 
 ## Stack
 
