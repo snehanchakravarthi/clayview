@@ -49,7 +49,10 @@ def extract(
     pairs: list[FlowPair] = []
     previous_boxes: list[Box] = []
     started = time.monotonic()
-    total = max(info.frame_count // options.stride, 1)
+    frames_wanted = info.frame_count
+    if options.limit_s is not None:
+        frames_wanted = min(frames_wanted, round(options.limit_s * info.fps))
+    total = max(frames_wanted // options.stride, 1)
     report_every = max(total // 20, 1)
 
     progress(f"detecting on {device} at imgsz {options.imgsz}, about {total} frames")
