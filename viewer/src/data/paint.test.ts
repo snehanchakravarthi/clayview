@@ -184,6 +184,33 @@ describe("cleanMarking", () => {
     expect(shapes[0]!.ring.length).toBeGreaterThanOrEqual(8);
   });
 
+  test("stairs off the pixel grid aren't mistaken for a zigzag", () => {
+    const stairs: WorldPoint[] = [];
+    for (let i = 0; i < 10; i++) {
+      stairs.push([3 + i * 0.4, 40 + i * 0.2], [3 + (i + 1) * 0.4, 40 + i * 0.2]);
+    }
+    for (let i = 9; i >= 0; i--) {
+      stairs.push([3 + (i + 1) * 0.4 + 0.1, 40.3 + i * 0.2], [3 + i * 0.4 + 0.1, 40.3 + i * 0.2]);
+    }
+    expect(kinds(cleanMarking(line(stairs), index))).not.toContain("figure");
+  });
+
+  test("a scrap of zigzag tidies into a bar", () => {
+    const scrap: WorldPoint[] = [
+      [3, 40],
+      [3.5, 40.2],
+      [4, 40.1],
+      [4.5, 40.5],
+      [4.55, 40.68],
+      [4, 40.35],
+      [3.5, 40.42],
+      [3, 40.2],
+    ];
+    const shapes = cleanMarking(line(scrap), index);
+    expect(kinds(shapes)).toEqual(["bar"]);
+    expect(shapes[0]!.ring.length).toBe(4);
+  });
+
   test("a degenerate polygon doesn't throw", () => {
     expect(cleanMarking(line([[0, 0], [1, 1]]), index)).toEqual([]);
     expect(

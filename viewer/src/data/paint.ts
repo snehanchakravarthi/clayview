@@ -29,6 +29,9 @@ const LUMP_FILL = 0.48;
 /** Zigzags and chevrons are thin. A big or thick figure is a smear caught at a slow turn. */
 const MAX_FIGURE_AREA = 7;
 const MAX_FIGURE_STROKE = 0.42;
+const MIN_FIGURE_REACH = 7;
+const ZIGZAG_CORNER_M = 0.32;
+const MIN_ZIGZAG_CORNERS = 8;
 const STRAIGHT_STROKE_M = 11;
 
 export type PaintKind = "stroke" | "bar" | "arrow" | "zebra" | "figure";
@@ -322,6 +325,25 @@ function principal(ring: RoadRing): { length: number; width: number; angle: numb
   return { length: highA - lowA, width: highB - lowB, angle };
 }
 
+/** A straight bar along a principal axis, for strokes that cross the road at an angle. */
+function slantedBar(
+  axis: { length: number; angle: number },
+  s: number,
+  d: number,
+  width: number,
+): RoadRing {
+  const cos = Math.cos(axis.angle);
+  const sin = Math.sin(axis.angle);
+  const half = axis.length / 2;
+  const edge = width / 2;
+  return [
+    [s - half * cos + edge * sin, d - half * sin - edge * cos],
+    [s + half * cos + edge * sin, d + half * sin - edge * cos],
+    [s + half * cos - edge * sin, d + half * sin + edge * cos],
+    [s - half * cos - edge * sin, d - half * sin + edge * cos],
+  ];
+}
+
 /** Read one marking and redraw it. Returns nothing when it can't be believed as paint. */
 export function cleanMarking(marking: RoadMarking, index: StreetIndex): PaintShape[] {
   const placed: RoadRing = marking.points.map(([x, y]) => {
@@ -375,25 +397,21 @@ export function cleanMarking(marking: RoadMarking, index: StreetIndex): PaintSha
   const straight = axis.width < Math.max(stroke * 2.2, 0.6);
   if (axis.length >= axis.width * STROKE_RATIO && axis.length > 1 && straight) {
     const lineWidth = clamp(stroke, MIN_LINE_WIDTH, MAX_LINE_WIDTH);
-    const cos = Math.cos(axis.angle);
-    const sin = Math.sin(axis.angle);
-    const middleS = (s0 + s1) / 2;
-    const middleD = (d0 + d1) / 2;
-    const half = axis.length / 2;
-    const edge = lineWidth / 2;
-    return [
-      shape("stroke", [
-        [middleS - half * cos + edge * sin, middleD - half * sin - edge * cos],
-        [middleS + half * cos + edge * sin, middleD + half * sin - edge * cos],
-        [middleS + half * cos - edge * sin, middleD + half * sin + edge * cos],
-        [middleS - half * cos - edge * sin, middleD - half * sin + edge * cos],
-      ]),
-    ];
+    return [shape("stroke", slantedBar(axis, (s0 + s1) / 2, (d0 + d1) / 2, lineWidth))];
   }
 
   const lump = stroke > LUMP_STROKE_M && area > length * width * LUMP_FILL;
   const believable = area >= MIN_FIGURE_AREA && area <= MAX_FIGURE_AREA && stroke <= MAX_FIGURE_STROKE;
-  return believable && !lump ? [shape("figure", ring)] : [];
+  if (!believable || lump) return [];
+  // A real zigzag keeps its corners when looked at coarsely. Stairs off the pixel grid don't, and a
+  // scrap that small tidies up into the bar it nearly is, or goes.
+  const coarse = simplifyRing(ring, ZIGZAG_CORNER_M);
+  if (ringPerimeter(ring) >= MIN_FIGURE_REACH && coarse.length >= MIN_ZIGZAG_CORNERS) {
+    return [shape("figure", coarse)];
+  }
+  if (axis.length < axis.width * 1.6) return [];
+  const lineWidth = clamp(stroke, MIN_LINE_WIDTH, MAX_LINE_WIDTH);
+  return [shape("bar", slantedBar(axis, (s0 + s1) / 2, (d0 + d1) / 2, lineWidth))];
 }
 
 /** True when most of a shape sits between the road's edges. */
