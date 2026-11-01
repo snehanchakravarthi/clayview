@@ -62,6 +62,8 @@ function lateralOnArc(offset: number, distance: number, curvature: number): numb
  */
 export class Road {
   readonly group = new Group();
+  /** The distance rings, on their own so they can sit on the real street too. */
+  readonly rings: Group;
   private readonly surface: Mesh<BufferGeometry, MeshStandardMaterial>;
   private readonly dashes: InstancedMesh;
   private readonly edges: InstancedMesh;
@@ -102,7 +104,8 @@ export class Road {
     this.edges.frustumCulled = false;
     this.edges.receiveShadow = true;
 
-    this.group.add(this.surface, this.dashes, this.edges, this.buildRings());
+    this.rings = this.buildRings();
+    this.group.add(this.surface, this.dashes, this.edges);
     this.update(0, 0);
   }
 

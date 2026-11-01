@@ -5,11 +5,19 @@ import { Actor, CLAY, Traffic } from "./actors";
 import { Road } from "./road";
 import { buildShowroom } from "./showroom";
 import { Stage } from "./stage";
+import { Streetscape, type StreetCounts } from "./streetscape";
 import { ViewRig, type ViewName } from "./views";
 
 /** Camera sits on the dash, a bit behind the nose, so the car model goes behind the origin. */
 const EGO_OFFSET_Z = 0.55;
 const TURNTABLE_RATE = 0.07;
+
+/** What the last frame cost, for the debug overlay. CPU time only: the GPU runs after it. */
+export interface FrameCost {
+  renderMs: number;
+  calls: number;
+  triangles: number;
+}
 
 export interface WorldReadout {
   speed: number;
@@ -22,12 +30,15 @@ export interface WorldReadout {
 export class World {
   private readonly stage: Stage;
   private readonly road = new Road();
+  private readonly street = new Streetscape();
   private readonly traffic = new Traffic();
   private readonly ego = new Actor("sedan", CLAY);
   private readonly showroom: Group;
   private readonly rig: ViewRig;
   private readonly samples: ObjectSample[] = [];
   private timeline: Timeline | null = null;
+  private showRings = false;
+  readonly lastFrame: FrameCost = { renderMs: 0, calls: 0, triangles: 0 };
 
   constructor(canvas: HTMLCanvasElement, onFreeView: () => void) {
     this.stage = new Stage(canvas);
@@ -36,8 +47,21 @@ export class World {
     this.ego.group.position.z = EGO_OFFSET_Z;
     this.showroom = buildShowroom();
     this.road.group.visible = false;
-    this.stage.scene.add(this.road.group, this.traffic.group, this.ego.group, this.showroom);
+    this.road.rings.visible = false;
+    this.stage.scene.add(
+      this.road.group,
+      this.road.rings,
+      this.street.group,
+      this.traffic.group,
+      this.ego.group,
+      this.showroom,
+    );
     this.rig.showroom();
+  }
+
+  /** Range rings over the real street. The decorative road always has them. */
+  setRings(show: boolean): void {
+    this.showRings = show;
   }
 
   get view(): ViewName | "free" {
@@ -54,18 +78,23 @@ export class World {
     this.timeline = timeline;
     this.showroom.visible = timeline === null;
     this.road.group.visible = timeline !== null;
+    this.street.load(timeline?.scene ?? null);
     this.ego.group.position.x = 0;
     if (changed) {
       if (timeline) this.rig.go("chase", true);
       else this.rig.showroom();
     }
-    if (!timeline) this.traffic.update([]);
+    if (!timeline) {
+      this.traffic.update([]);
+      this.road.rings.visible = false;
+    }
   }
 
   /** Draw time t. Returns what the UI needs to show alongside it. */
   frame(t: number, dt: number): WorldReadout | null {
     const timeline = this.timeline;
     let readout: WorldReadout | null = null;
+    let lean = 0;
     if (timeline) {
       this.samples.length = 0;
       for (const track of timeline.tracks) {
@@ -75,7 +104,16 @@ export class World {
       }
       this.traffic.update(this.samples);
       const ego = sampleEgo(timeline, t);
-      this.road.update(ego.distance, ego.curvature);
+      const onStreet = this.street.update(ego.segment, ego.pose);
+      this.road.group.visible = !onStreet;
+      this.road.rings.visible = !onStreet || this.showRings;
+      if (onStreet) {
+        this.stage.aimSun(ego.pose.x, ego.pose.y, ego.pose.yaw);
+        lean = ego.pose.yaw - ego.easedYaw;
+      } else {
+        this.road.update(ego.distance, ego.curvature);
+        this.stage.aimSun(0, 0, 0);
+      }
       readout = {
         speed: ego.speed,
         objects: this.samples.length,
@@ -86,7 +124,13 @@ export class World {
       this.orbit(dt);
     }
     this.rig.update(dt);
+    this.rig.lean(lean);
+    const started = performance.now();
     this.stage.render();
+    this.lastFrame.renderMs = performance.now() - started;
+    this.rig.settle();
+    this.lastFrame.calls = this.stage.drawn.calls;
+    this.lastFrame.triangles = this.stage.drawn.triangles;
     return readout;
   }
 
@@ -99,6 +143,11 @@ export class World {
     const dz = camera.position.z - controls.target.z;
     camera.position.x = controls.target.x + dx * Math.cos(angle) - dz * Math.sin(angle);
     camera.position.z = controls.target.z + dx * Math.sin(angle) + dz * Math.cos(angle);
+  }
+
+  /** What the current shot's street is made of, or null when it's the decorative road. */
+  get streetCounts(): StreetCounts | null {
+    return this.street.counts;
   }
 
   labelPosition(sample: ObjectSample, out: Vector2): boolean {

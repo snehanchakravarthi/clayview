@@ -1,4 +1,4 @@
-import { Vector3, type PerspectiveCamera } from "three";
+import { Quaternion, Vector3, type PerspectiveCamera } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 export type ViewName = "chase" | "aerial" | "top";
@@ -11,7 +11,7 @@ interface View {
 const VIEWS: Record<ViewName, View> = {
   chase: { position: new Vector3(0, 6.6, 21), target: new Vector3(0, 0.4, -15) },
   aerial: { position: new Vector3(-30, 44, 42), target: new Vector3(0, 0, -20) },
-  top: { position: new Vector3(0, 122, -26.01), target: new Vector3(0, 0, -26) },
+  top: { position: new Vector3(0, 122, -25.99), target: new Vector3(0, 0, -26) },
 };
 
 const SHOWROOM: View = {
@@ -20,6 +20,9 @@ const SHOWROOM: View = {
 };
 
 const TRANSITION_SECONDS = 0.9;
+const MAX_LEAN = 0.62;
+const UP = new Vector3(0, 1, 0);
+const LEAN = new Quaternion();
 
 function easeInOut(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
@@ -34,6 +37,9 @@ export class ViewRig {
   private toPosition = new Vector3();
   private toTarget = new Vector3();
   private progress = 1;
+  private leaned = 0;
+  private readonly restPosition = new Vector3();
+  private readonly restRotation = new Quaternion();
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -78,6 +84,28 @@ export class ViewRig {
     this.toPosition.copy(view.position);
     this.toTarget.copy(view.target);
     this.progress = 0;
+  }
+
+  /**
+   * Swing the camera around ego for this frame only, so turns read as the car turning under the
+   * camera instead of the whole world snapping round it. Undone by `settle`, because the orbit
+   * controls own the camera's resting place and would otherwise wind this in frame after frame.
+   */
+  lean(angle: number): void {
+    const camera = this.camera;
+    this.restPosition.copy(camera.position);
+    this.restRotation.copy(camera.quaternion);
+    this.leaned = Math.max(-MAX_LEAN, Math.min(MAX_LEAN, angle));
+    LEAN.setFromAxisAngle(UP, this.leaned);
+    camera.position.applyQuaternion(LEAN);
+    camera.quaternion.premultiply(LEAN);
+  }
+
+  settle(): void {
+    if (this.leaned === 0) return;
+    this.camera.position.copy(this.restPosition);
+    this.camera.quaternion.copy(this.restRotation);
+    this.leaned = 0;
   }
 
   update(dt: number): void {

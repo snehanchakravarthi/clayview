@@ -193,6 +193,7 @@ rates.addEventListener("click", (event) => {
 function toggleDebug(): void {
   const enabled = !debug.enabled;
   debug.setEnabled(enabled);
+  world.setRings(enabled);
   debugToggle.setAttribute("aria-pressed", String(enabled));
   lastSegment = -1;
 }
@@ -318,7 +319,7 @@ function frame(now: number): void {
     scrubber.draw(time);
     if (readout.segment !== lastSegment) {
       lastSegment = readout.segment;
-      debug.describe(timeline, readout.segment);
+      debug.describe(timeline, readout.segment, world.streetCounts);
     }
     debug.draw(world, readout.samples, timeline, readout.segment);
     playButton.toggleAttribute("data-playing", playback.playing);

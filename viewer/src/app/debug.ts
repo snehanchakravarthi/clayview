@@ -1,15 +1,19 @@
 import { Vector2 } from "three";
 import type { ObjectSample, SceneSegment, Timeline } from "../data/scene";
+import type { StreetCounts } from "../world/streetscape";
 import type { World } from "../world/world";
 
 const POINT = new Vector2();
 const BOX_COLOR = "#7fe0a0";
 const LOW_CONFIDENCE_COLOR = "#e6b295";
+const COST_SMOOTHING = 0.12;
 
 /** Distance labels on the clay, boxes on the video, and the camera numbers in a corner. */
 export class DebugOverlay {
   enabled = false;
   private readonly pool: HTMLDivElement[] = [];
+  private cost: HTMLElement | null = null;
+  private smoothedCost = 0;
 
   constructor(
     private readonly labels: HTMLElement,
@@ -31,6 +35,15 @@ export class DebugOverlay {
     if (!this.enabled) return;
     this.drawLabels(world, samples);
     this.drawVideo(samples, timeline.scene.segments[segment]);
+    this.drawCost(world);
+  }
+
+  private drawCost(world: World): void {
+    if (!this.cost) return;
+    const { renderMs, calls, triangles } = world.lastFrame;
+    this.smoothedCost += (renderMs - this.smoothedCost) * COST_SMOOTHING;
+    const thousands = Math.round(triangles / 1000);
+    this.cost.textContent = `${this.smoothedCost.toFixed(1)} ms · ${calls} calls · ${thousands}k △`;
   }
 
   private drawLabels(world: World, samples: readonly ObjectSample[]): void {
@@ -118,7 +131,7 @@ export class DebugOverlay {
   }
 
   /** The calibration behind the current shot, so a bad distance can be explained. */
-  describe(timeline: Timeline, segment: number): void {
+  describe(timeline: Timeline, segment: number, street: StreetCounts | null): void {
     const shot = timeline.scene.segments[segment];
     if (!shot) return;
     const { camera } = shot;
@@ -130,6 +143,7 @@ export class DebugOverlay {
       ["vfov", `${camera.vfovDeg.toFixed(0)}° · f ${camera.focalPx.toFixed(0)} px`],
       ["ego", `${egoMotion.mode} · ${(egoMotion.coverage * 100).toFixed(0)}%`],
       ["model", String(model.weights ?? "?")],
+      ...streetRows(street),
     ];
     this.panel.replaceChildren(
       ...rows.flatMap(([name, value]) => {
@@ -137,8 +151,21 @@ export class DebugOverlay {
         term.textContent = name;
         const detail = document.createElement("dd");
         detail.textContent = value;
+        if (name === "frame") this.cost = detail;
         return [term, detail];
       }),
     );
   }
+}
+
+function streetRows(street: StreetCounts | null): [string, string][] {
+  if (!street) return [["street", "decorative road"]];
+  const { roadM, paint, trees, bushes, furniture, barriers, blocks, buildMs } = street;
+  return [
+    ["road", `${(roadM / 1000).toFixed(2)} km · ${paint} paint`],
+    ["plants", `${trees} trees · ${bushes} bushes`],
+    ["street", `${furniture} fixtures · ${barriers} barriers · ${blocks} blocks`],
+    ["built", `${Math.round(street.triangles / 1000)}k △ in ${buildMs.toFixed(0)} ms`],
+    ["frame", "measuring"],
+  ];
 }
