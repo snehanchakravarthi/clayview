@@ -407,6 +407,14 @@ export class Flora {
     }
   }
 
+  /** Free the instance buffers. The tree shapes are shared by every world, so they stay. */
+  dispose(): void {
+    for (const rack of this.racks) {
+      rack.near[0]!.dispose();
+      rack.far[0]!.dispose();
+    }
+  }
+
   /** Triangles drawn right now. */
   triangles(): number {
     let total = 0;

@@ -102,6 +102,7 @@ class Shot {
 
   dispose(): void {
     for (const mesh of this.patches) mesh.geometry.dispose();
+    this.flora.dispose();
   }
 }
 
