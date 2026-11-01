@@ -12,7 +12,7 @@ import { Flora } from "./flora";
 import { layMassing } from "./massing";
 import { layBarriers, layFurniture } from "./props";
 import { Soup } from "./soup";
-import { layPaint, laySurface } from "./surface";
+import { layIslands, layPaint, laySurface } from "./surface";
 
 /** Past this from ego a patch of the world is lost in the fog, so don't draw it. */
 const DRAW_RANGE = 270;
@@ -24,6 +24,7 @@ export interface StreetCounts {
   trees: number;
   bushes: number;
   furniture: number;
+  islands: number;
   barriers: number;
   blocks: number;
   triangles: number;
@@ -53,6 +54,7 @@ class Shot {
     const ground = new Soup();
     laySurface(ground, densify(line));
     const paint = layPaint(ground, cleanMarkings(world.markings, index));
+    const islands = layIslands(ground, world.objects, index);
 
     const props = new Soup();
     const furniture = layFurniture(props, world.objects, index);
@@ -76,6 +78,7 @@ class Shot {
       trees: this.flora.treeCount,
       bushes: this.flora.bushCount,
       furniture,
+      islands,
       barriers,
       blocks,
       triangles,

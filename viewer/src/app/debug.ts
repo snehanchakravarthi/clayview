@@ -160,11 +160,12 @@ export class DebugOverlay {
 
 function streetRows(street: StreetCounts | null): [string, string][] {
   if (!street) return [["street", "decorative road"]];
-  const { roadM, paint, trees, bushes, furniture, barriers, blocks, buildMs } = street;
+  const { roadM, paint, trees, bushes, furniture, islands, barriers, blocks, buildMs } = street;
   return [
     ["road", `${(roadM / 1000).toFixed(2)} km · ${paint} paint`],
     ["plants", `${trees} trees · ${bushes} bushes`],
-    ["street", `${furniture} fixtures · ${barriers} barriers · ${blocks} blocks`],
+    ["street", `${furniture} fixtures · ${islands} islands`],
+    ["edges", `${barriers} barriers · ${blocks} blocks`],
     ["built", `${Math.round(street.triangles / 1000)}k △ in ${buildMs.toFixed(0)} ms`],
     ["frame", "measuring"],
   ];

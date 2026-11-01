@@ -1,6 +1,17 @@
-import { Color, ShapeUtils, Vector2, Vector3 } from "three";
+import {
+  type BufferGeometry,
+  Color,
+  CylinderGeometry,
+  LatheGeometry,
+  Matrix4,
+  Quaternion,
+  ShapeUtils,
+  Vector2,
+  Vector3,
+} from "three";
 import type { PaintShape } from "../data/paint";
-import { clamp, seeded, smoothstep, type StreetLine } from "../data/street";
+import type { StreetObject } from "../data/scene";
+import { clamp, seeded, smoothstep, type StreetIndex, type StreetLine } from "../data/street";
 import { PALETTE } from "./palette";
 import type { Soup } from "./soup";
 
@@ -16,6 +27,10 @@ const PAINT_HEIGHT = 0.014;
 const JOINT_HEIGHT = 0.004;
 const JOINT_SPACING = 2.4;
 const JOINT_WIDTH = 0.035;
+const ISLAND_MARGIN = 0.25;
+const ISLAND_RADIUS = 0.85;
+const ISLAND_LENGTH = 2;
+const ISLAND_RISE = 0.14;
 
 const ROAD_COLUMNS = [0, 0.018, 0.05, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 0.9, 0.95, 0.982, 1] as const;
 
@@ -348,6 +363,54 @@ export function layPaint(soup: Soup, shapes: readonly PaintShape[]): number {
     }
   }
   return laid;
+}
+
+/**
+ * Uprights are placed from the video, so one standing inside the road's edges means the edge there
+ * was a guess, not that a sign grew out of a lane. Real ones stand on a raised island, so give it one.
+ */
+export function layIslands(soup: Soup, objects: readonly StreetObject[], index: StreetIndex): number {
+  const { line } = index;
+  let laid = 0;
+  const matrix = new Matrix4();
+  const rotation = new Quaternion();
+  const position = new Vector3();
+  const scale = new Vector3();
+  const axis = new Vector3(0, 1, 0);
+  for (const object of objects) {
+    const place = index.place(object.x, object.y);
+    const station = place.station;
+    const inside =
+      place.d > line.left[station]! + ISLAND_MARGIN && place.d < line.right[station]! - ISLAND_MARGIN;
+    if (!inside) continue;
+    laid++;
+    const plant = object.kind === "tree" || object.kind === "bush";
+    const radius = plant ? ISLAND_RADIUS * 1.5 : ISLAND_RADIUS;
+    const yaw = Math.atan2(line.tx[station]!, line.ty[station]!);
+    rotation.setFromAxisAngle(axis, yaw);
+    position.set(object.x, 0, -object.y);
+    scale.set(1, 1, ISLAND_LENGTH);
+    matrix.compose(position, rotation, scale);
+    soup.at(object.x, -object.y);
+    soup.add(islandCurb(radius), PALETTE.curb, matrix);
+    soup.add(islandTop(radius), plant ? PALETTE.grass : PALETTE.sidewalk, matrix);
+  }
+  return laid;
+}
+
+function islandCurb(radius: number): BufferGeometry {
+  const geometry = new CylinderGeometry(radius - 0.05, radius, ISLAND_RISE, 28, 1, true);
+  geometry.translate(0, ISLAND_RISE / 2, 0);
+  return geometry;
+}
+
+function islandTop(radius: number): BufferGeometry {
+  const profile = [
+    new Vector2(radius - 0.05, ISLAND_RISE),
+    new Vector2(radius - 0.2, ISLAND_RISE + 0.012),
+    new Vector2(0.001, ISLAND_RISE + 0.012),
+  ];
+  return new LatheGeometry(profile, 28);
 }
 
 export function laySurface(soup: Soup, line: StreetLine): void {
