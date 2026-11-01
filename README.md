@@ -15,7 +15,7 @@ uv sync
 cd viewer && bun install
 ```
 
-The first run downloads the YOLO weights and the car view model into `models/`, about 210 MB.
+The first run downloads the YOLO weights, the car view model and the street model into `models/`, about 1 GB in total.
 
 ## Run it on a clip
 
@@ -76,6 +76,7 @@ Clips from unknown cameras are calibrated per shot, so a compilation can change 
 | `--max-range` | `120` | Clamp distance in metres. Objects past it are flagged `clamped`. |
 | `--model` | `models/yolo11n.pt` | YOLO weights. |
 | `--no-views` | | Skip the car view model. Faster, but headings get worse. |
+| `--no-world` | | Skip the street model. No real road, trees or buildings. |
 | `--imgsz` | `960` | Inference size. Higher finds smaller, further cars. |
 | `--stride` | `1` | Process every Nth frame. |
 | `--limit` | | Stop after this many seconds. |
@@ -122,12 +123,14 @@ Flags are `size_prior`, `no_ground`, `truncated` (cut by a frame edge), `clamped
 - **The road is assumed flat.** Hills move the true horizon, and calibration is per shot, not per frame.
 - **Ego speed comes from road texture.** It has no ground truth behind it. Bare asphalt, night and rain will all hurt it.
 - **Headings are approximate.** They combine direction of travel, box shape, the road direction from ego's own path and an image model that reads the angle a car is seen from. On 32 hand-labelled cars from the test clips, the median error is about 32° and 12% of cars face the wrong way. That's a small sample on one dashcam. The view model is often wrong on cars partly hidden by a dash mount, and small, far cars are weak.
-- **The road in the viewer is decoration.** Nothing detects lanes. It scrolls at the estimated speed and bends with the estimated yaw, so cars won't line up with its lanes.
+- **The street is rebuilt from one forward camera.** Curbs, paint, trees, poles and buildings are projected onto a flat road and joined along ego's estimated path, so errors in speed, yaw or calibration bend the map. Paint near the car can be about a metre off and arrows can smear. Anything the camera never saw clearly is missing, and tree heights run low when a canopy leaves the frame.
 - **Only one camera sees forward.** Things that pass you coast briefly and fade out. Nothing is known behind or beside you.
 - **`yolo11n` is small.** It misses distant objects and sometimes confuses cars and trucks. `--model` takes a larger one.
 
 ## Licence
 
 This repo is private because [Ultralytics YOLO](https://github.com/ultralytics/ultralytics) is AGPL-3.0. Sort that out before making it public or shipping it. Clips and model weights are never committed.
+
+The street model is Mask2Former trained on [Mapillary Vistas](https://huggingface.co/facebook/mask2former-swin-large-mapillary-vistas-semantic). Its Hugging Face licence is listed as `other`, and Vistas is a non-commercial research dataset, so check the terms before using this for anything but a personal project.
 
 The car view model is the ConvNeXt from [Car Full View Dataset](https://www.mdpi.com/2079-9292/12/24/4947) (Catruna et al., 2023), Apache-2.0 on [Hugging Face](https://huggingface.co/fort-cyber/Car-orientation-image). `clayview` checks its SHA-256 after download.

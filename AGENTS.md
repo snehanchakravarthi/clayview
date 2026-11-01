@@ -33,7 +33,7 @@ bun run typecheck
 bun run build      # typecheck, then dist/
 ```
 
-Detections are cached in `out/<clip>.raw.npz`, so changing a camera flag takes seconds. `--fresh` redoes them; changing detection code needs it.
+Detections, car views and street labels are cached in `out/<clip>.raw.npz`, `.views.npz` and `.seg.npz`, so changing a camera flag takes seconds. `--fresh` redoes them; changing detection or model code needs it.
 
 ## Layout
 
@@ -52,12 +52,14 @@ src/clayview/
     stats.py       `clayview stats`
   detect.py      the only module that imports Ultralytics
   orient.py      the car view model, the only module that imports timm
+  segment.py     the street model, the only module that imports transformers
+  world.py       the static street: road edges, paint, trees, poles, buildings (needs OpenCV)
   video.py       OpenCV: frames, cut thumbnails, background flow
   pipeline.py    detection pass and its cache
   cli.py
 viewer/src/
   data/scene.ts  scene contract; sampling is a pure function of time
-  world/         stage, road, procedural models, traffic, camera views
+  world/         stage, the clay street (surface, flora, props, massing), traffic, camera views
   app/           playback clock, loading, scrubber, debug overlay
   main.ts        wiring
 clips/ out/ models/   gitignored
@@ -81,4 +83,4 @@ Ego frame: `x` right, `y` forward, metres, origin on the road under the camera. 
 
 ## Out of scope
 
-Self-driving, driver assistance or anything safety-related. Live cameras and hardware, until this phase is done. Fetching from YouTube. Lane detection: the road in the viewer is decoration, and must stay described as such.
+Self-driving, driver assistance or anything safety-related. Live cameras and hardware, until this phase is done. Fetching from YouTube. Pretending the rebuilt street is survey accurate: it comes from one forward camera and ego's estimated path, and must stay described that way.
