@@ -57,13 +57,14 @@ function lateralOnArc(offset: number, distance: number, curvature: number): numb
 }
 
 /**
- * The road is decoration, not perception: nothing detects lanes. It carries the sense of motion,
- * scrolling at the estimated ego speed and bending with the estimated yaw.
+ * The fallback for a shot with no street of its own. This road is decoration, not perception. It
+ * carries the sense of motion, scrolling at the estimated ego speed and bending with the yaw.
  */
 export class Road {
   readonly group = new Group();
   /** The distance rings, on their own so they can sit on the real street too. */
   readonly rings: Group;
+  private readonly ringMaterials: MeshBasicMaterial[] = [];
   private readonly surface: Mesh<BufferGeometry, MeshStandardMaterial>;
   private readonly dashes: InstancedMesh;
   private readonly edges: InstancedMesh;
@@ -109,6 +110,12 @@ export class Road {
     this.update(0, 0);
   }
 
+  /** On asphalt the rings need to be pale, or they vanish into it. */
+  setRingsOnStreet(onStreet: boolean): void {
+    const color = onStreet ? PALETTE.paint : PALETTE.ring;
+    for (const material of this.ringMaterials) material.color.copy(color);
+  }
+
   private buildRings(): Group {
     const rings = new Group();
     for (const radius of RINGS) {
@@ -119,6 +126,7 @@ export class Road {
         opacity: 0.4 * (1 - radius / 130),
         depthWrite: false,
       });
+      this.ringMaterials.push(material);
       const weight = 0.035 + radius * 0.0012;
       const ring = new Mesh(new RingGeometry(radius - weight, radius + weight, 192), material);
       ring.rotation.x = -Math.PI / 2;

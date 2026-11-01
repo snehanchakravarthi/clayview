@@ -2,7 +2,8 @@ import { Color } from "three";
 
 /** One place for the scene's colours. Warm greys, with terracotta reserved for ego. */
 export const PALETTE = {
-  background: new Color("#f8f1e4"),
+  /** Tuned to match lit ground after tone mapping, or the horizon shows as a seam. */
+  background: new Color("#fbf0de"),
   ground: new Color("#d6cfc1"),
   road: new Color("#c2bbae"),
   marking: new Color("#f5f2ec"),

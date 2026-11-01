@@ -107,6 +107,7 @@ export class World {
       const onStreet = this.street.update(ego.segment, ego.pose);
       this.road.group.visible = !onStreet;
       this.road.rings.visible = !onStreet || this.showRings;
+      this.road.setRingsOnStreet(onStreet);
       if (onStreet) {
         this.stage.aimSun(ego.pose.x, ego.pose.y, ego.pose.yaw);
         lean = ego.pose.yaw - ego.easedYaw;

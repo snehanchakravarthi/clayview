@@ -23,7 +23,7 @@ const FAR_RANGE = 240;
 const TREE_VARIANTS = 6;
 const BUSH_VARIANTS = 3;
 const NEAR_DETAIL = 13;
-const FAR_DETAIL = 3;
+const FAR_DETAIL = 5;
 
 const UP = new Vector3(0, 1, 0);
 const MATRIX = new Matrix4();
