@@ -4,6 +4,7 @@ import {
   DirectionalLight,
   Fog,
   HalfFloatType,
+  MathUtils,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -27,12 +28,14 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { PALETTE } from "./palette";
 
 const SHADOW_HALF_SPAN = 72;
+const VERTICAL_FOV = 30;
+const WIDEST_FRAMED_ASPECT = 1.6;
 const VECTOR = new Vector3();
 
 /** Renderer, studio light, ground and the post stack. Knows nothing about traffic. */
 export class Stage {
   readonly scene = new Scene();
-  readonly camera = new PerspectiveCamera(30, 1, 1, 360);
+  readonly camera = new PerspectiveCamera(VERTICAL_FOV, 1, 1, 360);
   readonly renderer: WebGLRenderer;
   private readonly composer: EffectComposer;
   private readonly ao: GTAOPass;
@@ -130,7 +133,12 @@ export class Stage {
     this.renderer.setSize(width, height, false);
     this.composer.setPixelRatio(pixelRatio);
     this.composer.setSize(width, height);
-    this.camera.aspect = width / height;
+    const aspect = width / height;
+    // Narrow panes keep the same sideways reach, or parked rows beside the road fall out of frame.
+    const halfHeight = Math.tan(MathUtils.degToRad(VERTICAL_FOV / 2));
+    const fit = (halfHeight * WIDEST_FRAMED_ASPECT) / aspect;
+    this.camera.aspect = aspect;
+    this.camera.fov = MathUtils.radToDeg(2 * Math.atan(Math.max(fit, halfHeight)));
     this.camera.updateProjectionMatrix();
   }
 
