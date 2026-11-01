@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { RoadStation } from "./scene";
-import { buildStreetLine, gaussian, median, seeded, stationAt, StreetIndex } from "./street";
+import {
+  buildStreetLine,
+  densify,
+  gaussian,
+  median,
+  seeded,
+  stationAt,
+  StreetIndex,
+} from "./street";
 
 function station(s: number, x: number, y: number, yaw: number): RoadStation {
   return {
@@ -145,6 +153,35 @@ describe("buildStreetLine", () => {
 
   test("a road too short to smooth is refused", () => {
     expect(buildStreetLine([station(0, 0, 0, 0)])).toBeNull();
+  });
+});
+
+describe("densify", () => {
+  test("doubles the stations and keeps the real road's ends", () => {
+    const line = buildStreetLine(bend(20, 1))!;
+    const fine = densify(line);
+    expect(fine.count).toBe(line.count * 2 - 1);
+    expect(fine.x[fine.firstReal]).toBeCloseTo(line.x[line.firstReal]!);
+    expect(fine.y[fine.lastReal]).toBeCloseTo(line.y[line.lastReal]!);
+    expect(fine.s[fine.firstReal]).toBeCloseTo(0);
+  });
+
+  test("a new station lies on the curve, not on the chord", () => {
+    const line = buildStreetLine(bend(12, 1.5))!;
+    const fine = densify(line);
+    const middle = line.firstReal + 34;
+    const chordX = (line.x[middle]! + line.x[middle + 1]!) / 2;
+    const chordY = (line.y[middle]! + line.y[middle + 1]!) / 2;
+    const sag = Math.hypot(fine.x[middle * 2 + 1]! - chordX, fine.y[middle * 2 + 1]! - chordY);
+    expect(sag).toBeGreaterThan(0.001);
+    expect(sag).toBeLessThan(0.3);
+  });
+
+  test("right vectors stay unit length", () => {
+    const fine = densify(buildStreetLine(bend(10, 1.2))!);
+    for (let i = 0; i < fine.count; i += 7) {
+      expect(Math.hypot(fine.rx[i]!, fine.ry[i]!)).toBeCloseTo(1);
+    }
   });
 });
 

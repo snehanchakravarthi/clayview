@@ -15,8 +15,8 @@ const WIDTH_SPAN = 10;
 
 const CENTRE_SIGMA = 2.2;
 const TANGENT_SIGMA = 1.2;
-const EDGE_MEDIAN = 3;
-const EDGE_SIGMA = 2.4;
+const EDGE_MEDIAN = 4;
+const EDGE_SIGMA = 3.4;
 const WIDTH_MEDIAN = 3;
 const WIDTH_SIGMA = 2.2;
 const FLAG_MEDIAN = 2;
@@ -465,6 +465,67 @@ export function stationAt(line: StreetLine, s: number): number {
     else high = middle - 1;
   }
   return Math.max(low, 0);
+}
+
+/** The line at twice the stations, so offset edges stay round on the outside of bends. */
+export function densify(line: StreetLine): StreetLine {
+  const count = line.count * 2 - 1;
+  const spread = (values: Float32Array): Float32Array => {
+    const result = new Float32Array(count);
+    for (let index = 0; index < line.count; index++) {
+      result[index * 2] = values[index]!;
+      if (index + 1 < line.count) {
+        result[index * 2 + 1] = (values[index]! + values[index + 1]!) / 2;
+      }
+    }
+    return result;
+  };
+  const curved = (values: Float32Array): Float32Array => {
+    const result = spread(values);
+    for (let index = 1; index + 2 < line.count; index++) {
+      const [a, b, c, d] = [
+        values[index - 1]!,
+        values[index]!,
+        values[index + 1]!,
+        values[index + 2]!,
+      ];
+      result[index * 2 + 1] = (-a + 9 * b + 9 * c - d) / 16;
+    }
+    return result;
+  };
+  const tx = spread(line.tx);
+  const ty = spread(line.ty);
+  const rx = new Float32Array(count);
+  const ry = new Float32Array(count);
+  for (let index = 0; index < count; index++) {
+    const length = Math.hypot(tx[index]!, ty[index]!) || 1;
+    tx[index] = tx[index]! / length;
+    ty[index] = ty[index]! / length;
+    rx[index] = ty[index]!;
+    ry[index] = -tx[index]!;
+  }
+  return {
+    count,
+    s: spread(line.s),
+    x: curved(line.x),
+    y: curved(line.y),
+    tx,
+    ty,
+    rx,
+    ry,
+    left: spread(line.left),
+    right: spread(line.right),
+    curbLeft: spread(line.curbLeft),
+    curbRight: spread(line.curbRight),
+    walkLeft: spread(line.walkLeft),
+    walkRight: spread(line.walkRight),
+    grassLeft: spread(line.grassLeft),
+    grassRight: spread(line.grassRight),
+    trust: spread(line.trust),
+    presence: spread(line.presence),
+    firstReal: line.firstReal * 2,
+    lastReal: line.lastReal * 2,
+  };
 }
 
 /** Stable pseudo-random in 0..1 from any two numbers: the same tree grows the same every load. */
