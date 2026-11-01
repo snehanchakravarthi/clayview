@@ -1,0 +1,163 @@
+"""Ego motion from background flow on the road plane."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+import numpy as np
+
+from clayview.core.camera import Camera
+from clayview.core.types import EgoStep, FlowPair
+
+
+@dataclass(frozen=True)
+class EgoConfig:
+    far_band_fraction: float = 0.07  # rows around the horizon that only see rotation
+    near_band_fraction: float = 0.05  # road rows start this far below the horizon
+    max_ground_range_m: float = 22.0
+    max_ground_lateral_m: float = 9.0
+    min_points: int = 8
+    pool_frames: int = 4  # road points are pooled over this many frames each side
+    static_speed_mps: float = 0.8  # below this, a cluster of points is not moving
+    min_road_share: float = 0.2  # the moving cluster must be at least this much of the sample
+    median_window: int = 7
+    smooth_alpha: float = 0.35
+    max_speed_mps: float = 55.0
+
+
+def yaw_step(pair: FlowPair, camera: Camera, config: EgoConfig | None = None) -> float | None:
+    """Ego yaw in radians for one frame pair. Far points shift sideways only when ego rotates."""
+    cfg = config or EgoConfig()
+    if len(pair.prev) == 0:
+        return None
+    rows = pair.prev[:, 1]
+    band = cfg.far_band_fraction * camera.image_height
+    far = np.abs(rows - camera.horizon) < band
+    if int(far.sum()) < cfg.min_points:
+        return None
+    shift = float(np.median(pair.next[far, 0] - pair.prev[far, 0]))
+    return -shift / camera.focal_px
+
+
+def road_speeds(
+    pair: FlowPair, camera: Camera, dt: float, config: EgoConfig | None = None
+) -> np.ndarray:
+    """Forward speed in m/s implied by each flow point on the road surface.
+
+    Uses rows only: at dashcam pitch, yaw moves points sideways and barely changes their row.
+    """
+    cfg = config or EgoConfig()
+    if len(pair.prev) == 0:
+        return np.empty(0)
+    focal = camera.focal_px
+    top = camera.horizon + cfg.near_band_fraction * camera.image_height
+    rows_prev = pair.prev[:, 1].astype(float)
+    rows_next = pair.next[:, 1].astype(float)
+    on_road = (rows_prev > top) & (rows_next > top)
+    on_road &= (rows_prev < camera.bottom) & (rows_next < camera.bottom)
+    if not on_road.any():
+        return np.empty(0)
+
+    scale = focal * camera.height_m
+    y_prev = scale / (rows_prev[on_road] - camera.horizon)
+    y_next = scale / (rows_next[on_road] - camera.horizon)
+    x_prev = (pair.prev[on_road, 0] - camera.cx) * y_prev / focal
+    near = (y_prev < cfg.max_ground_range_m) & (np.abs(x_prev) < cfg.max_ground_lateral_m)
+    return (y_prev[near] - y_next[near]) / max(dt, 1e-3)
+
+
+def speed_from_points(speeds: np.ndarray, config: EgoConfig | None = None) -> float | None:
+    """Ego speed from pooled per-point speeds, ignoring anything stuck to the windshield.
+
+    Reflections of the dash sit over the road and never move, so the sample is often two clusters:
+    one at zero and the real road. A plain median lands between them. Split the sample in two; if
+    the lower half really is at zero and the upper half is big enough to be the road, trust that.
+    """
+    cfg = config or EgoConfig()
+    if len(speeds) < cfg.min_points:
+        return None
+    threshold = float(speeds.mean())
+    for _ in range(10):
+        low, high = speeds[speeds <= threshold], speeds[speeds > threshold]
+        if len(low) == 0 or len(high) == 0:
+            break
+        threshold = (float(low.mean()) + float(high.mean())) / 2.0
+
+    low, high = speeds[speeds <= threshold], speeds[speeds > threshold]
+    if len(low) == 0 or len(high) == 0:
+        return float(np.median(speeds))
+    low_center = float(np.median(low))
+    high_center = float(np.median(high))
+    if abs(low_center) >= cfg.static_speed_mps or len(high) < cfg.min_road_share * len(speeds):
+        return float(np.median(speeds))
+    return high_center if high_center >= cfg.static_speed_mps else 0.0
+
+
+def estimate_ego_series(
+    pairs: Sequence[FlowPair],
+    times: Sequence[float],
+    camera: Camera,
+    config: EgoConfig | None = None,
+) -> tuple[list[EgoStep], float]:
+    """Smoothed ego step per pair, plus the fraction of pairs that had a real measurement.
+
+    pairs[i] links frame i to frame i + 1. Road points are pooled over a short window, since each
+    frame only has a few dozen. Gaps take the neighbouring value: ego speed is the one thing in a
+    dashcam clip that is guaranteed to change slowly.
+    """
+    cfg = config or EgoConfig()
+    count = len(pairs)
+    dts = [
+        max(float(times[index + 1] - times[index]), 1e-3) if index + 1 < len(times) else 0.0
+        for index in range(count)
+    ]
+    point_speeds = [road_speeds(pair, camera, dts[i], cfg) for i, pair in enumerate(pairs)]
+    yaw = np.full(count, np.nan)
+    speed = np.full(count, np.nan)
+    for index, pair in enumerate(pairs):
+        measured_yaw = yaw_step(pair, camera, cfg)
+        if measured_yaw is not None:
+            yaw[index] = measured_yaw
+        start = max(index - cfg.pool_frames, 0)
+        pooled = np.concatenate(point_speeds[start : index + cfg.pool_frames + 1])
+        measured = speed_from_points(pooled, cfg)
+        if measured is not None and -2.0 <= measured <= cfg.max_speed_mps:
+            speed[index] = max(measured, 0.0)
+
+    coverage = float(np.isfinite(speed).mean()) if count else 0.0
+    smooth_speed = _smooth_series(speed, cfg)
+    smooth_yaw = _smooth_series(yaw, cfg)
+    steps = [
+        EgoStep(forward_m=float(smooth_speed[i]) * dts[i], yaw_rad=float(smooth_yaw[i]))
+        for i in range(count)
+    ]
+    return steps, coverage
+
+
+def _smooth_series(values: np.ndarray, cfg: EgoConfig) -> np.ndarray:
+    """Fill gaps, median filter, then a forward-backward low-pass."""
+    if len(values) == 0:
+        return values
+    known = np.isfinite(values)
+    if not known.any():
+        return np.zeros_like(values)
+    positions = np.arange(len(values))
+    filled = np.interp(positions, positions[known], values[known])
+
+    half = cfg.median_window // 2
+    padded = np.pad(filled, half, mode="edge")
+    windows = np.lib.stride_tricks.sliding_window_view(padded, cfg.median_window)
+    median = np.median(windows, axis=1)
+
+    forward = _low_pass(median, cfg.smooth_alpha)
+    return _low_pass(forward[::-1], cfg.smooth_alpha)[::-1]
+
+
+def _low_pass(values: np.ndarray, alpha: float) -> np.ndarray:
+    result = np.empty_like(values)
+    level = float(values[0])
+    for index, value in enumerate(values):
+        level += alpha * (float(value) - level)
+        result[index] = level
+    return result
