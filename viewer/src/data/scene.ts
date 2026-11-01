@@ -1,6 +1,6 @@
 /** The scene file contract, and fast sampling of it at any time. */
 
-export const SCENE_VERSION = 1;
+export const SCENE_VERSION = 2;
 
 export const OBJECT_CLASSES = ["car", "truck", "bus", "motorcycle", "bicycle", "person"] as const;
 export type ObjectClass = (typeof OBJECT_CLASSES)[number];
@@ -16,12 +16,89 @@ export interface SceneObject {
   box?: [number, number, number, number];
 }
 
+/** Ego in its shot's world frame: x right, y forward at the shot's first frame, yaw right. */
+export type ScenePose = [x: number, y: number, yaw: number];
+
 export interface SceneFrame {
   frame: number;
   t: number;
   segment: number;
-  ego: { speed: number; yaw: number };
+  ego: { speed: number; yaw: number; pose: ScenePose };
   objects: SceneObject[];
+}
+
+export type WorldPoint = [x: number, y: number];
+
+/** A cross-section of the real road, every 2 m along ego's path. */
+export interface RoadStation {
+  s: number;
+  x: number;
+  y: number;
+  yaw: number;
+  /** Road edges in metres along the path's right vector: left is negative, right positive. */
+  left: number;
+  right: number;
+  /** False when the edges were interpolated or defaulted. */
+  measured: boolean;
+  leftCurb: boolean;
+  rightCurb: boolean;
+  leftWalk: number;
+  rightWalk: number;
+  leftGrass: number;
+  rightGrass: number;
+}
+
+export interface RoadMarking {
+  kind: "line" | "crosswalk";
+  /** A closed polygon in world metres. Concave and noisy. */
+  points: WorldPoint[];
+}
+
+export const STREET_OBJECT_KINDS = [
+  "tree",
+  "bush",
+  "pole",
+  "streetLight",
+  "trafficLight",
+  "sign",
+] as const;
+export type StreetObjectKind = (typeof STREET_OBJECT_KINDS)[number];
+
+export interface StreetObject {
+  kind: StreetObjectKind;
+  x: number;
+  y: number;
+  height: number;
+  /** On trees and bushes only. */
+  radius?: number;
+}
+
+export interface BuildingRun {
+  side: "left" | "right";
+  /** Capped by what the frame showed, so this is a hint. */
+  height: number;
+  points: WorldPoint[];
+}
+
+export interface BarrierRun {
+  kind: "wall" | "fence" | "guardRail" | "barrier";
+  side: "left" | "right";
+  height: number;
+  points: WorldPoint[];
+}
+
+/** The static street of one shot. Poses restart at each shot, so worlds don't share a frame. */
+export interface WorldSegment {
+  segment: number;
+  road: RoadStation[];
+  markings: RoadMarking[];
+  objects: StreetObject[];
+  buildings: BuildingRun[];
+  barriers: BarrierRun[];
+}
+
+export interface SceneWorld {
+  segments: WorldSegment[];
 }
 
 export interface CameraInfo {
@@ -66,6 +143,8 @@ export interface SceneFile {
   metadata: SceneMetadata;
   segments: SceneSegment[];
   frames: SceneFrame[];
+  /** Null when the pipeline ran with --no-world: the viewer falls back to its decorative road. */
+  world?: SceneWorld | null;
 }
 
 export interface Track {
@@ -90,6 +169,10 @@ export interface Timeline {
   distance: Float64Array;
   curvature: Float32Array;
   density: Float32Array;
+  poseX: Float64Array;
+  poseY: Float64Array;
+  /** Unwrapped within a shot, so interpolation never spins the long way round. */
+  poseYaw: Float64Array;
   duration: number;
   cuts: number[];
 }
@@ -106,11 +189,20 @@ export interface ObjectSample {
   fade: number;
 }
 
+export interface EgoPose {
+  x: number;
+  y: number;
+  yaw: number;
+}
+
 export interface EgoSample {
   speed: number;
   distance: number;
   curvature: number;
   segment: number;
+  pose: EgoPose;
+  /** Ego's yaw eased over a moment, for a camera that leans into turns instead of snapping. */
+  easedYaw: number;
 }
 
 export class SceneError extends Error {}
@@ -119,6 +211,8 @@ const FADE_SECONDS = 0.35;
 const MAX_CURVATURE = 1 / 70;
 const CURVATURE_WINDOW_SECONDS = 1.2;
 const MIN_CURVING_SPEED = 2;
+const EASED_YAW_SECONDS = 0.9;
+const EASED_YAW_SAMPLES = 8;
 
 /** Parse and validate scene text. Throws SceneError with a message fit to show the user. */
 export function parseScene(text: string): SceneFile {
@@ -152,6 +246,9 @@ export function buildTimeline(scene: SceneFile): Timeline {
   const distance = new Float64Array(count);
   const density = new Float32Array(count);
   const yawRate = new Float32Array(count);
+  const poseX = new Float64Array(count);
+  const poseY = new Float64Array(count);
+  const poseYaw = new Float64Array(count);
 
   const grouped = new Map<number, { t: number; object: SceneObject }[]>();
   for (let index = 0; index < count; index++) {
@@ -159,6 +256,11 @@ export function buildTimeline(scene: SceneFile): Timeline {
     times[index] = frame.t;
     speed[index] = frame.ego.speed;
     density[index] = frame.objects.length;
+    const pose = frame.ego.pose;
+    poseX[index] = pose[0];
+    poseY[index] = pose[1];
+    const sameShot = index > 0 && frames[index - 1]!.segment === frame.segment;
+    poseYaw[index] = sameShot ? nearestAngle(pose[2], poseYaw[index - 1]!) : pose[2];
     if (index > 0) {
       const dt = frame.t - frames[index - 1]!.t;
       distance[index] = distance[index - 1]! + speed[index - 1]! * dt;
@@ -213,6 +315,9 @@ export function buildTimeline(scene: SceneFile): Timeline {
     distance,
     curvature: curvatureSeries(times, speed, yawRate),
     density,
+    poseX,
+    poseY,
+    poseYaw,
     duration: scene.metadata.source.duration || times[count - 1]!,
     cuts: scene.segments.slice(1).map((segment) => segment.start),
   };
@@ -300,12 +405,81 @@ export function sampleEgo(timeline: Timeline, t: number): EgoSample {
   const next = Math.min(index + 1, times.length - 1);
   const span = times[next]! - times[index]!;
   const mix = span > 0 ? Math.max(0, Math.min(1, (t - times[index]!) / span)) : 0;
+  const segment = scene.frames[index]!.segment;
+  // Poses restart at a cut, so the last frame of a shot holds instead of leaping to the next.
+  const poseMix = scene.frames[next]!.segment === segment ? mix : 0;
+  const pose = {
+    x: lerp(timeline.poseX[index]!, timeline.poseX[next]!, poseMix),
+    y: lerp(timeline.poseY[index]!, timeline.poseY[next]!, poseMix),
+    yaw: lerp(timeline.poseYaw[index]!, timeline.poseYaw[next]!, poseMix),
+  };
   return {
     speed: lerp(speed[index]!, speed[next]!, mix),
     distance: lerp(distance[index]!, distance[next]!, mix),
     curvature: lerp(curvature[index]!, curvature[next]!, mix),
-    segment: scene.frames[index]!.segment,
+    segment,
+    pose,
+    easedYaw: easedYaw(timeline, t, segment, pose.yaw),
   };
+}
+
+/** Yaw at a moment of this shot, clamped to the shot's own frames. */
+function yawInShot(timeline: Timeline, t: number, segment: number): number | null {
+  const { times, poseYaw, scene } = timeline;
+  const index = lowerIndex(times, t);
+  if (scene.frames[index]!.segment !== segment) return null;
+  const next = Math.min(index + 1, times.length - 1);
+  if (scene.frames[next]!.segment !== segment) return poseYaw[index]!;
+  const span = times[next]! - times[index]!;
+  const mix = span > 0 ? Math.max(0, Math.min(1, (t - times[index]!) / span)) : 0;
+  return lerp(poseYaw[index]!, poseYaw[next]!, mix);
+}
+
+/**
+ * Yaw averaged over a window around t, weighted towards t. It reads only the timeline, so a camera
+ * built on it is still a pure function of time. The window stops at the shot's edges.
+ */
+function easedYaw(timeline: Timeline, t: number, segment: number, yaw: number): number {
+  let sum = 0;
+  let weights = 0;
+  for (let step = -EASED_YAW_SAMPLES; step <= EASED_YAW_SAMPLES; step++) {
+    const fraction = step / EASED_YAW_SAMPLES;
+    const value = yawInShot(timeline, t + fraction * EASED_YAW_SECONDS, segment);
+    if (value === null) continue;
+    const weight = 1 - Math.abs(fraction);
+    sum += value * weight;
+    weights += weight;
+  }
+  return weights > 0 ? sum / weights : yaw;
+}
+
+/** World to ego: where a point of the shot's world sits relative to the car at this pose. */
+export function worldToEgo(x: number, y: number, pose: EgoPose): { x: number; y: number } {
+  const dx = x - pose.x;
+  const dy = y - pose.y;
+  const cos = Math.cos(pose.yaw);
+  const sin = Math.sin(pose.yaw);
+  return { x: dx * cos - dy * sin, y: dx * sin + dy * cos };
+}
+
+/**
+ * The rigid transform that carries a world built in three.js axes (X = x, Z = -y) into the ego
+ * frame, as a group's position and Y rotation.
+ */
+export function egoFrameTransform(pose: EgoPose): { x: number; z: number; rotationY: number } {
+  const cos = Math.cos(pose.yaw);
+  const sin = Math.sin(pose.yaw);
+  return {
+    x: -pose.x * cos + pose.y * sin,
+    z: pose.x * sin + pose.y * cos,
+    rotationY: pose.yaw,
+  };
+}
+
+/** The static street for a shot, or null when there isn't one to build. */
+export function worldForSegment(scene: SceneFile, segment: number): WorldSegment | null {
+  const found = scene.world?.segments.find((entry) => entry.segment === segment);
+  return found && found.road.length >= 2 ? found : null;
 }
 
 function lerp(a: number, b: number, mix: number): number {
