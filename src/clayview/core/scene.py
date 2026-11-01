@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -14,6 +14,7 @@ from clayview.core.camera import (
     Camera,
 )
 from clayview.core.ego import estimate_ego_series, yaw_step
+from clayview.core.heading import EgoPath
 from clayview.core.horizon import (
     estimate_visible_bottom,
     fit_focus_of_expansion,
@@ -25,7 +26,7 @@ from clayview.core.projection import ProjectionConfig
 from clayview.core.tracks import Segment, TrackConfig, Views, WorldTrack, build_tracks
 from clayview.core.types import Detection, EgoStep, FlowPair
 
-SCENE_VERSION = 1
+SCENE_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -131,8 +132,12 @@ def build_scene(
     options: CameraOptions | None = None,
     track_config: TrackConfig | None = None,
     projection_config: ProjectionConfig | None = None,
+    world_builder: Callable[[Sequence[Segment], Sequence[EgoStep]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Calibrate each shot, build tracks and return the JSON-ready scene."""
+    """Calibrate each shot, build tracks and return the JSON-ready scene.
+
+    `world_builder` makes the static street. It's passed in because it needs OpenCV, and core can't.
+    """
     opts = options or CameraOptions()
     frame_count = len(raw.times)
     boundaries = [0, *sorted(raw.cuts), frame_count]
@@ -174,7 +179,9 @@ def build_scene(
         projection_config=projection_config,
         views=raw.views,
     )
-    return _to_json(raw, segments, calibrations, coverage, ego_steps, tracks, opts)
+    scene = _to_json(raw, segments, calibrations, coverage, ego_steps, tracks, opts)
+    scene["world"] = world_builder(segments, ego_steps) if world_builder else None
+    return scene
 
 
 def _round(value: float, digits: int = 2) -> float:
@@ -233,8 +240,17 @@ def _to_json(
     frames: list[dict[str, Any]] = []
     speeds = _ego_speeds(ego_steps, raw.times)
     segment_of = np.zeros(frame_count, dtype=np.int32)
+    poses: list[list[float]] = [[0.0, 0.0, 0.0] for _ in range(frame_count)]
     for segment in segments:
         segment_of[segment.start_frame : segment.end_frame] = segment.index
+        path = EgoPath(ego_steps, segment.start_frame, segment.end_frame)
+        for index in range(segment.start_frame, segment.end_frame):
+            local = index - segment.start_frame
+            poses[index] = [
+                _round(path.x[local]),
+                _round(path.y[local]),
+                _round(path.yaw[local], 5),
+            ]
     for index, objects in enumerate(objects_by_frame):
         step = ego_steps[index] if index < len(ego_steps) else EgoStep()
         frames.append(
@@ -242,7 +258,11 @@ def _to_json(
                 "frame": index,
                 "t": _round(raw.times[index], 4),
                 "segment": int(segment_of[index]),
-                "ego": {"speed": _round(speeds[index]), "yaw": _round(step.yaw_rad, 5)},
+                "ego": {
+                    "speed": _round(speeds[index]),
+                    "yaw": _round(step.yaw_rad, 5),
+                    "pose": poses[index],
+                },
                 "objects": objects,
             }
         )

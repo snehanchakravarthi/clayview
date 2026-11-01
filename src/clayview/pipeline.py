@@ -17,6 +17,7 @@ from clayview.core.scene import RawClip, VideoInfo
 from clayview.core.types import EMPTY_FLOW, Box, Detection, FlowPair
 from clayview.detect import YoloTracker, pick_device
 from clayview.video import BackgroundFlow, cut_thumbnail, probe, read_frames
+from clayview.world import SegMaps
 
 CACHE_VERSION = 1
 
@@ -126,6 +127,22 @@ def load_views(path: Path, key: str) -> dict[tuple[int, int], tuple[float, ...]]
             (int(frame), int(track)): tuple(float(value) for value in row)
             for (frame, track), row in zip(data["keys"], data["values"], strict=True)
         }
+
+
+def save_seg(path: Path, seg: SegMaps, key: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        np.savez_compressed(handle, key=np.array(key), frames=seg.frames, maps=seg.maps)
+
+
+def load_seg(path: Path, key: str) -> SegMaps | None:
+    """Load cached street labels, or None if they came from a different run."""
+    if not path.exists():
+        return None
+    with np.load(path) as data:
+        if str(data["key"]) != key:
+            return None
+        return SegMaps(data["frames"], data["maps"])
 
 
 def _resolve_weights(weights: str) -> str:

@@ -3,7 +3,7 @@ import json
 import numpy as np
 
 from clayview.core.camera import Camera
-from clayview.core.scene import CameraOptions, RawClip, VideoInfo, build_scene
+from clayview.core.scene import SCENE_VERSION, CameraOptions, RawClip, VideoInfo, build_scene
 from clayview.core.stats import summarize
 from clayview.core.types import EMPTY_FLOW, Box, Detection, FlowPair
 
@@ -43,7 +43,7 @@ def clip(cuts: list[int] | None = None) -> RawClip:
 
 def test_scene_shape_matches_the_viewer_contract() -> None:
     scene = build_scene(clip(), CameraOptions(height_m=1.2, horizon_y=620.0))
-    assert scene["version"] == 1
+    assert scene["version"] == SCENE_VERSION
     meta = scene["metadata"]
     assert meta["source"]["path"] == "clip.mp4"
     assert meta["source"]["fps"] == 30.0

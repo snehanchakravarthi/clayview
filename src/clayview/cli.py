@@ -6,8 +6,9 @@ import argparse
 import json
 import sys
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from clayview.core.camera import DEFAULT_VFOV_DEG, horizon_from_pitch
 from clayview.core.projection import ProjectionConfig
@@ -16,6 +17,7 @@ from clayview.core.stats import summarize
 
 if TYPE_CHECKING:
     from clayview.pipeline import DetectionOptions
+    from clayview.world import SegMaps
 
 BROWSER_VIDEO_SUFFIXES = {".mp4", ".m4v", ".mov", ".webm"}
 
@@ -37,6 +39,9 @@ def main(argv: list[str] | None = None) -> int:
         "--no-views",
         action="store_true",
         help="skip the car view model; heading gets less accurate",
+    )
+    process.add_argument(
+        "--no-world", action="store_true", help="skip the street model; no road, trees or buildings"
     )
     process.add_argument(
         "--height", default="auto", help="camera height in metres, or auto (from car widths)"
@@ -68,6 +73,36 @@ def main(argv: list[str] | None = None) -> int:
         print(summarize(json.loads(args.scene.read_text())))
         return 0
     return _process(args)
+
+
+def _build_world(segments: Any, ego_steps: Any, seg: SegMaps) -> dict[str, Any]:
+    from clayview.world import build_world
+
+    return build_world(segments, ego_steps, seg)
+
+
+def _street_labels(
+    raw: RawClip,
+    video: Path,
+    options: DetectionOptions,
+    raw_path: Path,
+    key: str,
+    fresh: bool,
+) -> SegMaps:
+    from clayview.detect import pick_device
+    from clayview.pipeline import load_seg, save_seg
+    from clayview.segment import MODEL_NAME, SEGMENT_EVERY, segment_clip
+
+    seg_path = raw_path.with_name(raw_path.name.removesuffix(".raw.npz") + ".seg.npz")
+    seg_key = json.dumps([key, MODEL_NAME, SEGMENT_EVERY])
+    seg = None if fresh else load_seg(seg_path, seg_key)
+    if seg is None:
+        device = pick_device(options.device)
+        seg = segment_clip(video, options.stride, len(raw.times), device)
+        save_seg(seg_path, seg, seg_key)
+    else:
+        print(f"reusing street labels from {seg_path}")
+    return seg
 
 
 def _with_views(
@@ -125,7 +160,16 @@ def _process(args: argparse.Namespace) -> int:
 
     info = probe(video)
     camera = _camera_options(args, info.height)
-    scene = build_scene(raw, camera, projection_config=ProjectionConfig(max_range_m=args.max_range))
+    world_builder = None
+    if not args.no_world:
+        seg = _street_labels(raw, video, options, raw_path, key, args.fresh)
+        world_builder = partial(_build_world, seg=seg)
+    scene = build_scene(
+        raw,
+        camera,
+        projection_config=ProjectionConfig(max_range_m=args.max_range),
+        world_builder=world_builder,
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(scene, separators=(",", ":")))
     _link_latest(output, video)
