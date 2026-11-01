@@ -12,6 +12,8 @@ from clayview.core.projection import ProjectionConfig
 from clayview.core.scene import CameraOptions, build_scene
 from clayview.core.stats import summarize
 
+BROWSER_VIDEO_SUFFIXES = {".mp4", ".m4v", ".mov", ".webm"}
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="clayview", description=__doc__)
@@ -94,6 +96,11 @@ def _process(args: argparse.Namespace) -> int:
     print()
     print(summarize(scene))
     print(f"\nwrote {output} ({output.stat().st_size / 1e6:.1f} MB)")
+    if video.suffix.lower() not in BROWSER_VIDEO_SUFFIXES:
+        print(
+            f"note: browsers may not play {video.suffix} files. For the viewer, convert it:\n"
+            f"  ffmpeg -i {video} -c:v libx264 -crf 23 -an {video.with_suffix('.mp4')}"
+        )
     return 0
 
 
