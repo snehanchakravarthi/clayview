@@ -93,12 +93,16 @@ If the output looks wrong, press D in the viewer. The yellow line should sit on 
   "frames": [
     {
       "frame": 1875, "t": 62.5, "segment": 0,
-      "ego": { "speed": 12.05, "yaw": 0.0021 },
+      "ego": { "speed": 12.05, "yaw": -0.00431 },
       "objects": [
         {
-          "id": 52, "class": "car", "x": -7.9, "y": 9.8,
-          "heading": 0.22, "confidence": 0.71, "flags": ["size_prior"],
-          "box": [0.11, 0.56, 0.2, 0.62]
+          "id": 48, "class": "car", "x": -8.35, "y": 9.82,
+          "heading": -0.349, "confidence": 0.592, "flags": [],
+          "box": [0.0983, 0.6211, 0.1868, 0.7013]
+        },
+        {
+          "id": 50, "class": "car", "x": -7.24, "y": 0.33,
+          "heading": 0.248, "confidence": 0.194, "flags": ["held", "low_conf"]
         }
       ]
     }
