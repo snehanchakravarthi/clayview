@@ -3,6 +3,7 @@ import math
 import pytest
 
 from clayview.core.camera import Camera
+from clayview.core.heading import seen_aspect
 from clayview.core.tracks import Segment, build_tracks, stitch_fragments
 from clayview.core.types import FLAG_HELD, Box, Detection, EgoStep
 
@@ -17,6 +18,15 @@ def box_for(x: float, y: float, width_m: float = 1.8) -> Box:
     u, v = CAMERA.image_point(x, y)
     half = CAMERA.focal_px * width_m / y / 2.0
     height = CAMERA.focal_px * 1.5 / y
+    return Box(u - half, v - height, u + half, v)
+
+
+def side_on_box(x: float, y: float) -> Box:
+    """A car parallel to ego shows more of its side the further it sits off to one side."""
+    seen_from = math.atan2(x, y)
+    height = CAMERA.focal_px * 1.5 / y
+    half = float(seen_aspect(seen_from, 1.4, 2.7)) * height / 2.0
+    u, v = CAMERA.image_point(x, y)
     return Box(u - half, v - height, u + half, v)
 
 
@@ -111,7 +121,10 @@ def test_oncoming_car_faces_ego() -> None:
 def test_parked_car_does_not_read_as_oncoming_when_ego_speed_is_off() -> None:
     """Real speed 15, estimate 11: the car appears to do 4 m/s towards ego. It must not."""
     ego = [EgoStep(forward_m=11.0 * DT) for _ in range(FRAMES - 1)]
-    detections = track(1, range(0, 90), lambda frame: (4.0, 45.0 - 15.0 * frame * DT))
+    detections = [
+        Detection(frame, 1, "car", 0.8, side_on_box(4.0, 45.0 - 15.0 * frame * DT))
+        for frame in range(0, 70)
+    ]
     samples = build_tracks(detections, TIMES, SEGMENTS, ego)[0].samples
     assert all(abs(s.heading) < math.radians(5.0) for s in samples)
 

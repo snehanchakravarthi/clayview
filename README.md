@@ -120,7 +120,7 @@ Flags are `size_prior`, `no_ground`, `truncated` (cut by a frame edge), `clamped
 - **Lenses are assumed perfect.** Wide dashcam lenses bend straight lines, which matters most at the edges of the frame.
 - **The road is assumed flat.** Hills move the true horizon, and calibration is per shot, not per frame.
 - **Ego speed comes from road texture.** It has no ground truth behind it. Bare asphalt, night and rain will all hurt it.
-- **Parked cars have no direction to read.** They line up with ego, or keep the last heading they had when moving. A parked car facing you will face away.
+- **Heading is inferred, not seen.** It combines direction of travel, box shape and the road direction from ego's own path. A parked car's front and back look alike to these cues, so it may face the wrong way along the right line. Cars that don't follow the road and aren't clearly moving are still weak.
 - **The road in the viewer is decoration.** Nothing detects lanes. It scrolls at the estimated speed and bends with the estimated yaw, so cars won't line up with its lanes.
 - **Only one camera sees forward.** Things that pass you coast briefly and fade out. Nothing is known behind or beside you.
 - **`yolo11n` is small.** It misses distant objects and sometimes confuses cars and trucks. `--model` takes a larger one.

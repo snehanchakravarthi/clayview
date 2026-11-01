@@ -46,7 +46,8 @@ src/clayview/
     ego.py         ego speed and yaw from road flow
     horizon.py     per-shot calibration: FoE, car widths, hood row
     cuts.py        hard-cut detection
-    tracks.py      stitching, filtering, heading, confidence, flags
+    heading.py     heading from box shape, motion and ego's path
+    tracks.py      stitching, filtering, confidence, flags
     scene.py       builds the scene file
     stats.py       `clayview stats`
   detect.py      the only module that imports Ultralytics

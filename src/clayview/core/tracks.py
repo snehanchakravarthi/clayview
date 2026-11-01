@@ -5,13 +5,22 @@ from __future__ import annotations
 import itertools
 import math
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from clayview.core.camera import Camera
+from clayview.core.heading import EgoPath, HeadingConfig, HeadingCues, solve_heading
 from clayview.core.projection import ProjectionConfig, footprint_half_extent, project_box
 from clayview.core.smoother import FilterConfig, Measurement, State, Step, smooth_sequence
-from clayview.core.types import FLAG_HELD, FLAG_LOW_CONF, Box, Detection, EgoStep, Observation
+from clayview.core.types import (
+    FLAG_HELD,
+    FLAG_LOW_CONF,
+    FLAG_TRUNCATED,
+    Box,
+    Detection,
+    EgoStep,
+    Observation,
+)
 
 VEHICLES = frozenset({"car", "truck", "bus"})
 RIDERS = frozenset({"motorcycle", "bicycle"})
@@ -71,10 +80,12 @@ def build_tracks(
     track_config: TrackConfig | None = None,
     projection_config: ProjectionConfig | None = None,
     filter_config: FilterConfig | None = None,
+    heading_config: HeadingConfig | None = None,
 ) -> list[WorldTrack]:
     """Project, smooth and filter. Output is ordered by first appearance, with clean ids."""
     cfg = track_config or TrackConfig()
     pcfg = projection_config or ProjectionConfig()
+    hcfg = heading_config or HeadingConfig()
 
     grouped: dict[tuple[int, int], list[Detection]] = defaultdict(list)
     for detection in detections:
@@ -89,11 +100,12 @@ def build_tracks(
             fragments.append((segment_index, fragment))
 
     built: list[tuple[int, str, int, tuple[ObjectSample, ...]]] = []
-    for segment_index in range(len(segments)):
+    for segment_index, segment in enumerate(segments):
         in_segment = [fragment for index, fragment in fragments if index == segment_index]
+        path = EgoPath(ego_steps, segment.start_frame, segment.end_frame)
         for fragment in stitch_fragments(in_segment, times, cfg.stitch_gap_s):
             track = _build_one(
-                fragment, segments[segment_index], times, ego_steps, cfg, pcfg, filter_config
+                fragment, segment, path, times, ego_steps, cfg, pcfg, hcfg, filter_config
             )
             if track is not None:
                 built.append(track)
@@ -201,10 +213,12 @@ def _left_through_edge(box: Box, camera: Camera, margin: float = 0.04) -> bool:
 def _build_one(
     detections: list[Detection],
     segment: Segment,
+    path: EgoPath,
     times: Sequence[float],
     ego_steps: Sequence[EgoStep],
     cfg: TrackConfig,
     pcfg: ProjectionConfig,
+    hcfg: HeadingConfig,
     filter_config: FilterConfig | None,
 ) -> tuple[int, str, int, tuple[ObjectSample, ...]] | None:
     camera = segment.camera
@@ -241,7 +255,10 @@ def _build_one(
     states = smooth_sequence(_measurement(first_observation), steps, filter_config)
 
     frames = list(range(first_frame, end_frame + 1))
-    headings = _headings(states, steps, class_name, times, frames, cfg)
+    whole_boxes = {
+        frame: hit[0].box for frame, hit in observed.items() if FLAG_TRUNCATED not in hit[1].flags
+    }
+    headings = _headings(states, steps, class_name, times, frames, whole_boxes, path, cfg, hcfg)
 
     samples: list[ObjectSample] = []
     confidence = observed[first_frame][0].confidence
@@ -307,13 +324,16 @@ def _headings(
     class_name: str,
     times: Sequence[float],
     frames: Sequence[int],
+    boxes: Mapping[int, Box],
+    path: EgoPath,
     cfg: TrackConfig,
+    hcfg: HeadingConfig,
 ) -> list[float]:
     """Heading over the ground in radians: 0 is ego's direction, positive turns right.
 
     Below walking pace, or when the velocity could be noise or ego-speed error, motion says nothing
-    about heading. The object then keeps its last real heading, carried through ego's own yaw. A
-    track that never moves gets one from its first real motion, or else lines up with ego.
+    about heading, and box shape and the road decide instead. A parked track gets one heading from
+    everything seen of it, because a car seen from a changing angle fixes its own direction.
     """
     min_speed = cfg.person_min_speed if class_name == "person" else cfg.vehicle_min_speed
 
@@ -323,7 +343,12 @@ def _headings(
     for step in steps:
         cumulative_yaw.append(cumulative_yaw[-1] + step.ego.yaw_rad)
 
-    ego_speeds = [abs(step.ego.forward_m) / step.dt for step in steps] or [0.0]
+    # Ego's own motion leaks into a track's velocity. Travel leaks in directly, and turning sweeps
+    # distant objects sideways, so a parked car far off looks fast while ego turns.
+    ego_speeds = [
+        (abs(step.ego.forward_m) + abs(step.ego.yaw_rad) * math.hypot(state.x, state.y)) / step.dt
+        for step, state in zip(steps, states, strict=False)
+    ] or [0.0]
     mean_ego_speed = sum(ego_speeds) / len(ego_speeds)
     fixed_vx = [_rotate_velocity(s, cumulative_yaw[i])[0] for i, s in enumerate(states)]
     fixed_vy = [_rotate_velocity(s, cumulative_yaw[i])[1] for i, s in enumerate(states)]
@@ -334,27 +359,31 @@ def _headings(
     # this far better than any one frame, and it can't flip partway through.
     parked = mean_speed < max(min_speed, cfg.ego_speed_doubt * mean_ego_speed)
 
-    fixed: list[float | None] = []
+    first_road = path.yaw_at(frames[0])
+    cues: list[HeadingCues] = []
     for index, state in enumerate(states):
         speed = math.hypot(state.vx, state.vy)
         ego_speed = ego_speeds[min(index, len(ego_speeds) - 1)]
         needed = max(min_speed, 1.5 * state.sigma_speed, cfg.ego_speed_doubt * ego_speed)
-        if parked or speed < needed:
-            fixed.append(None)
-        else:
-            fixed.append(math.atan2(fixed_vx[index], fixed_vy[index]))
+        moving = not parked and speed >= needed
+        road, road_offset = path.road_at(frames[index], state.x, state.y)
+        cues.append(
+            HeadingCues(
+                yaw=cumulative_yaw[index],
+                bearing=math.atan2(state.x, state.y),
+                box=boxes.get(frames[index]),
+                motion=math.atan2(fixed_vx[index], fixed_vy[index]) if moving else None,
+                motion_certainty=speed / max(state.sigma_speed, 0.05),
+                road=road - first_road if class_name != "person" else None,
+                road_offset_m=road_offset,
+            )
+        )
 
-    first_known = next((value for value in fixed if value is not None), 0.0)
-    filled: list[float] = []
-    current = first_known
-    for value in fixed:
-        if value is not None:
-            current = value
-        filled.append(current)
-
-    sines = [math.sin(value) for value in filled]
-    cosines = [math.cos(value) for value in filled]
     dt = [float(times[frames[i + 1]] - times[frames[i]]) for i in range(len(frames) - 1)]
+    solved = solve_heading(cues, dt, class_name, not parked, hcfg)
+
+    sines = [math.sin(value) for value in solved]
+    cosines = [math.cos(value) for value in solved]
     sines = _two_way_low_pass(sines, dt, cfg.heading_tau_s)
     cosines = _two_way_low_pass(cosines, dt, cfg.heading_tau_s)
     return [
