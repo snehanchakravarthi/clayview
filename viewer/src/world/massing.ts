@@ -1,5 +1,5 @@
 import { Vector3, type Color } from "three";
-import { cleanRun, type CleanRun, type RunOptions } from "../data/runs";
+import { cleanRun, verge, type CleanRun, type RunOptions } from "../data/runs";
 import type { BuildingRun, WorldPoint } from "../data/scene";
 import { clamp, seeded, type StreetIndex } from "../data/street";
 import { PALETTE } from "./palette";
@@ -18,12 +18,18 @@ const FLOOR_M = 3.3;
 const GROUND_FLOOR_M = 4.2;
 const MIN_LOT = 13;
 const MAX_LOT = 30;
+const MIN_LOT_WIDTH = 8;
 const MIN_HEIGHT = 7.5;
 const MAX_HEIGHT = 44;
 const MIN_DEPTH = 11;
 const MAX_DEPTH = 22;
 /** Any deeper and the fins throw a comb-shaped shadow right across the road. */
 const FIN_DEPTH = 0.13;
+const ROAD_GAP = 1.5;
+const DEPTH_STEP = 2;
+const BACK_SAMPLES = 5;
+const MIN_FITTED_DEPTH = 6;
+const SAMPLE = new Vector3();
 
 const UP = new Vector3(0, 1, 0);
 const P0 = new Vector3();
@@ -280,14 +286,14 @@ function building(soup: Soup, block: Block, height: number, seed: number): void 
   }
   if (seeded(seed, 36) > 0.5) {
     const top = steps ? inset(block, 2.4) : block;
-    const plant = inset(top, Math.min(4, Vector3Length(top) * 0.3));
+    const plant = inset(top, Math.min(4, shortestSide(top) * 0.3));
     const y = height + 0.02;
     plainBlock(soup, plant, y, y + 2.4, PALETTE.massingShade, style, seed, "plain");
     roof(soup, plant, y + 2.4, PALETTE.massingShade);
   }
 }
 
-function Vector3Length(block: Block): number {
+function shortestSide(block: Block): number {
   return Math.min(
     block.frontLeft.distanceTo(block.frontRight),
     block.frontLeft.distanceTo(block.backLeft),
@@ -298,17 +304,64 @@ function worldPoint(point: WorldPoint): Vector3 {
   return new Vector3(point[0], 0, -point[1]);
 }
 
+/** True when a point of the shot's world, in three.js axes, is clear of every stretch of road. */
+function clearOfRoad(point: Vector3, index: StreetIndex): boolean {
+  const place = index.place(point.x, -point.z);
+  const sign = place.d >= 0 ? 1 : -1;
+  return Math.abs(place.d) >= verge(index.line, place.s, sign, ROAD_GAP, false);
+}
+
+/**
+ * A lot's straight front is a chord, and on the outside of a bend a chord swings in towards the
+ * road. How far it has to move out to stay behind the verge.
+ */
+function chordIntrusion(index: StreetIndex, from: number, to: number, front: number, side: number): number {
+  const a = index.point(from, front);
+  const b = index.point(to, front);
+  const place = index.place((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+  const needed = verge(index.line, place.s, side, FRONT_RULES.clearance, FRONT_RULES.behindVerge);
+  return Math.max(needed - place.d * side, 0);
+}
+
+/**
+ * Make a lot as deep as it can go. Where the road doubles back, a block raised from one stretch can
+ * reach the next, so it gets shallower, and gives up rather than stand on the road.
+ */
+function fittedBlock(frontLeft: Vector3, frontRight: Vector3, depth: number, index: StreetIndex): Block | null {
+  for (let fitted = depth; fitted >= MIN_FITTED_DEPTH; fitted -= DEPTH_STEP) {
+    const block = blockAt(frontLeft, frontRight, fitted);
+    let clear = true;
+    for (let step = 0; step <= BACK_SAMPLES && clear; step++) {
+      const mix = step / BACK_SAMPLES;
+      SAMPLE.lerpVectors(block.backLeft, block.backRight, mix);
+      clear = clearOfRoad(SAMPLE, index);
+      SAMPLE.lerpVectors(block.frontLeft, block.backLeft, mix);
+      clear &&= clearOfRoad(SAMPLE, index);
+      SAMPLE.lerpVectors(block.frontRight, block.backRight, mix);
+      clear &&= clearOfRoad(SAMPLE, index);
+    }
+    if (clear) return block;
+  }
+  return null;
+}
+
 /** Split a cleaned building front into lots and raise each one. */
 function raiseRun(soup: Soup, run: CleanRun, hint: number, side: 1 | -1, index: StreetIndex): number {
   const seed = run.s[0]! * 0.37 + side;
   const base = clamp(hint * 1.25, MIN_HEIGHT + 2, MAX_HEIGHT * 0.7);
   let lots = 0;
-  let from = run.s[0]!;
-  const end = run.s[run.s.length - 1]!;
+  // A building only glimpsed leaves a short run. It's still a whole building, not a sliver of one.
+  const first = run.s[0]!;
+  const last = run.s[run.s.length - 1]!;
+  const widen = Math.max((MIN_LOT - (last - first)) / 2, 0);
+  let from = first - widen;
+  const end = last + widen;
   while (end - from > 4) {
     const lotSeed = seed + lots * 7.3;
     const wanted = MIN_LOT + seeded(lotSeed, 41) * (MAX_LOT - MIN_LOT);
-    const to = Math.min(from + wanted, end);
+    // A sliver left over at the end of a run would come out as an absurdly thin tower.
+    const to = end - (from + wanted) < MIN_LOT * 0.6 ? end : from + wanted;
+    if (to - from < MIN_LOT_WIDTH) break;
     const dAt = (s: number): number => {
       let source = 0;
       while (source + 2 < run.s.length && run.s[source + 1]! < s) source++;
@@ -317,18 +370,22 @@ function raiseRun(soup: Soup, run: CleanRun, hint: number, side: 1 | -1, index: 
       return run.d[source]! + (run.d[source + 1]! - run.d[source]!) * mix;
     };
     const setback = seeded(lotSeed, 42) * 1.6;
-    const front = (dAt(from) + dAt(to)) / 2 + side * setback;
+    let front = (dAt(from) + dAt(to)) / 2 + side * setback;
+    front += side * chordIntrusion(index, from, to, front, side);
     const a = worldPoint(index.point(from, front));
     const b = worldPoint(index.point(to, front));
     // Facing a building from the road, forward along the road is on your left on the right side.
     const [frontLeft, frontRight] = side > 0 ? [b, a] : [a, b];
-    const depth = MIN_DEPTH + seeded(lotSeed, 43) * (MAX_DEPTH - MIN_DEPTH);
-    const rawHeight = base * (0.7 + seeded(lotSeed, 44) * 0.85);
-    const floors = Math.max(Math.round((rawHeight - GROUND_FLOOR_M) / FLOOR_M), 1);
-    const height = clamp(GROUND_FLOOR_M + floors * FLOOR_M, MIN_HEIGHT, MAX_HEIGHT);
-    soup.at(a.x, a.z);
-    building(soup, blockAt(frontLeft, frontRight, depth), height, lotSeed);
-    lots++;
+    const wantedDepth = MIN_DEPTH + seeded(lotSeed, 43) * (MAX_DEPTH - MIN_DEPTH);
+    const block = fittedBlock(frontLeft, frontRight, wantedDepth, index);
+    if (block) {
+      const rawHeight = base * (0.7 + seeded(lotSeed, 44) * 0.85);
+      const floors = Math.max(Math.round((rawHeight - GROUND_FLOOR_M) / FLOOR_M), 1);
+      const height = clamp(GROUND_FLOOR_M + floors * FLOOR_M, MIN_HEIGHT, MAX_HEIGHT);
+      soup.at(a.x, a.z);
+      building(soup, block, height, lotSeed);
+      lots++;
+    }
     from = to + 0.8 + seeded(lotSeed, 45) * 2.4;
   }
   return lots;
