@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#efebe4" />
+    <title>clayview</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23c4704a'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div class="app" id="app" data-state="empty">
+      <main class="stage" id="stage">
+        <section class="pane pane-video" aria-label="Source video">
+          <video id="video" playsinline muted preload="auto"></video>
+          <canvas id="video-debug" class="video-debug" hidden></canvas>
+          <div class="video-missing" id="video-missing" hidden>
+            <p class="video-missing-title">No video yet</p>
+            <p id="video-missing-text"></p>
+            <button class="button" type="button" data-action="pick">Choose video</button>
+          </div>
+          <p class="pane-caption" id="video-name"></p>
+        </section>
+
+        <div
+          class="splitter"
+          id="splitter"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize video and clay panes"
+          aria-valuemin="20"
+          aria-valuemax="80"
+          aria-valuenow="44"
+          tabindex="0"
+        ></div>
+
+        <section class="pane pane-clay" aria-label="Clay scene">
+          <canvas id="clay"></canvas>
+          <div class="labels" id="labels" aria-hidden="true"></div>
+
+          <div class="hud" id="hud">
+            <p class="hud-speed"><span id="hud-speed">0</span><span class="hud-unit">km/h</span></p>
+            <p class="hud-meta" id="hud-meta"></p>
+          </div>
+
+          <div class="views" id="views" role="group" aria-label="Camera view">
+            <button type="button" data-view="chase" aria-pressed="true">Chase</button>
+            <button type="button" data-view="aerial" aria-pressed="false">Aerial</button>
+            <button type="button" data-view="top" aria-pressed="false">Top</button>
+          </div>
+
+          <dl class="debug-panel" id="debug-panel" hidden></dl>
+        </section>
+      </main>
+
+      <footer class="transport" id="transport">
+        <button class="icon-button play" id="play" type="button" aria-label="Play">
+          <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.6v12.8a1 1 0 0 0 1.5.86l10.6-6.4a1 1 0 0 0 0-1.72L9.5 4.74A1 1 0 0 0 8 5.6Z" /></svg>
+          <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2" /><rect x="13.5" y="5" width="4" height="14" rx="1.2" /></svg>
+        </button>
+
+        <p class="clock"><span id="time-now">00:00.00</span><span class="clock-total" id="time-total"></span></p>
+
+        <div class="scrub">
+          <canvas id="scrub-canvas"></canvas>
+          <input id="scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="Playback position" />
+        </div>
+
+        <div class="segmented" id="rates" role="group" aria-label="Playback speed">
+          <button type="button" data-rate="0.25" aria-pressed="false">¼×</button>
+          <button type="button" data-rate="0.5" aria-pressed="false">½×</button>
+          <button type="button" data-rate="1" aria-pressed="true">1×</button>
+          <button type="button" data-rate="2" aria-pressed="false">2×</button>
+        </div>
+
+        <button class="toggle" id="debug" type="button" aria-pressed="false" title="Debug overlay (D)">Debug</button>
+        <button class="toggle" type="button" data-action="pick">Open</button>
+      </footer>
+
+      <div class="empty" id="empty">
+        <div class="empty-card">
+          <p class="wordmark">clayview</p>
+          <h1>Dashcam traffic, in clay.</h1>
+          <p class="empty-lead">Drop a scene file and its video anywhere on this page.</p>
+          <div class="empty-actions">
+            <button class="button button-primary" type="button" data-action="pick">Choose files</button>
+            <button class="button" id="open-latest" type="button" hidden></button>
+          </div>
+          <div class="empty-hint">
+            <p>No scene file yet? Make one from any clip:</p>
+            <code>uv run clayview process clip.mp4</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="veil" id="veil" hidden><p>Drop to open</p></div>
+      <p class="toast" id="toast" role="status" hidden></p>
+      <input id="picker" type="file" accept=".json,video/*,.ogv,.mkv" multiple hidden />
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
