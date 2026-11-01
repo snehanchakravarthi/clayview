@@ -1,0 +1,45 @@
+# Clips and videos: never commit footage
+clips/
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.ogv
+*.m4v
+
+# Model weights and exports
+models/
+*.pt
+*.pth
+*.onnx
+*.torchscript
+*.mlpackage/
+*.mlmodel
+*.tflite
+*.engine
+*_ncnn_model/
+*_openvino_model/
+*_saved_model/
+
+# Generated scene files and caches
+out/
+*.scene.json
+*.raw.npz
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+runs/
+
+# JS
+node_modules/
+dist/
+
+# Environment and OS
+.env
+.env.*
+.DS_Store
