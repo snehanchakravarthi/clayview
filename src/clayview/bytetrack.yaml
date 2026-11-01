@@ -1,0 +1,9 @@
+# ByteTrack settings for dashcam footage. A longer buffer than the Ultralytics default, because
+# cars disappear behind each other for a second at a time.
+tracker_type: bytetrack
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.3
+track_buffer: 45
+match_thresh: 0.85
+fuse_score: True

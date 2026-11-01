@@ -1,0 +1,195 @@
+"""Detection pass: video in, RawClip out. Results are cached so re-calibrating is instant."""
+
+from __future__ import annotations
+
+import itertools
+import json
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from clayview.core.cuts import CutDetector
+from clayview.core.scene import RawClip, VideoInfo
+from clayview.core.types import EMPTY_FLOW, Box, Detection, FlowPair
+from clayview.detect import YoloTracker, pick_device
+from clayview.video import BackgroundFlow, cut_thumbnail, probe, read_frames
+
+CACHE_VERSION = 1
+
+
+@dataclass(frozen=True)
+class DetectionOptions:
+    weights: str = "models/yolo11n.pt"
+    imgsz: int = 960
+    device: str = "auto"
+    stride: int = 1
+    limit_s: float | None = None
+
+
+def extract(
+    video_path: Path,
+    options: DetectionOptions,
+    progress: Callable[[str], None] = print,
+) -> RawClip:
+    """Run YOLO, ByteTrack, cut detection and background flow over the whole clip."""
+    info = probe(video_path)
+    device = pick_device(options.device)
+    weights = _resolve_weights(options.weights)
+    tracker = YoloTracker(weights, device, options.imgsz)
+    cut_detector = CutDetector()
+    flow = BackgroundFlow(info.width, info.height)
+
+    times: list[float] = []
+    cuts: list[int] = []
+    detections: list[Detection] = []
+    pairs: list[FlowPair] = []
+    previous_boxes: list[Box] = []
+    started = time.monotonic()
+    total = max(info.frame_count // options.stride, 1)
+    report_every = max(total // 20, 1)
+
+    progress(f"detecting on {device} at imgsz {options.imgsz}, about {total} frames")
+    for index, (time_s, frame) in enumerate(read_frames(video_path, options.stride)):
+        if options.limit_s is not None and time_s > options.limit_s:
+            break
+        if cut_detector.update(cut_thumbnail(frame)):
+            cuts.append(index)
+            tracker.reset()
+            flow.reset()
+            previous_boxes = []
+            progress(f"  cut at {time_s:.2f} s")
+
+        pair = flow.step(frame, previous_boxes)
+        if index > 0:
+            # pairs[i] links frame i to i + 1, and the first frame after a cut has no link back.
+            pairs.append(pair if index not in cuts else EMPTY_FLOW)
+
+        frame_detections = tracker.step(index, frame)
+        detections.extend(frame_detections)
+        previous_boxes = [d.box for d in frame_detections]
+        times.append(time_s)
+
+        if (index + 1) % report_every == 0:
+            rate = (index + 1) / max(time.monotonic() - started, 1e-3)
+            progress(f"  {index + 1}/{total} frames, {rate:.1f} fps")
+
+    if not times:
+        raise ValueError(f"no frames could be read from {video_path}")
+
+    duration = info.frame_count / info.fps if info.frame_count else times[-1]
+    return RawClip(
+        video=VideoInfo(
+            path=str(video_path),
+            width=info.width,
+            height=info.height,
+            fps=info.fps / options.stride,
+            duration=min(duration, options.limit_s) if options.limit_s else duration,
+            frame_count=info.frame_count,
+        ),
+        times=times,
+        cuts=cuts,
+        detections=detections,
+        flow=pairs,
+        model={
+            "weights": Path(weights).name,
+            "imgsz": options.imgsz,
+            "device": device,
+            "tracker": "bytetrack",
+            "stride": options.stride,
+        },
+    )
+
+
+def _resolve_weights(weights: str) -> str:
+    """Keep downloaded weights in models/, not wherever the command ran."""
+    path = Path(weights)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
+def cache_key(video_path: Path, options: DetectionOptions) -> str:
+    stat = video_path.stat()
+    return json.dumps(
+        {
+            "version": CACHE_VERSION,
+            "video": [str(video_path), stat.st_size, int(stat.st_mtime)],
+            "weights": Path(options.weights).name,
+            "imgsz": options.imgsz,
+            "stride": options.stride,
+            "limit": options.limit_s,
+        },
+        sort_keys=True,
+    )
+
+
+def save_raw(path: Path, raw: RawClip, key: str) -> None:
+    classes = sorted({d.class_name for d in raw.detections})
+    class_index = {name: index for index, name in enumerate(classes)}
+    offsets = np.cumsum([0, *[len(pair.prev) for pair in raw.flow]], dtype=np.int64)
+    prev = [pair.prev for pair in raw.flow] or [EMPTY_FLOW.prev]
+    next_ = [pair.next for pair in raw.flow] or [EMPTY_FLOW.next]
+    header: dict[str, Any] = {
+        "key": key,
+        "classes": classes,
+        "video": raw.video.__dict__,
+        "model": raw.model,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        np.savez_compressed(
+            handle,
+            header=np.array(json.dumps(header)),
+            times=np.array(raw.times, dtype=np.float64),
+            cuts=np.array(raw.cuts, dtype=np.int64),
+            det_frame=np.array([d.frame for d in raw.detections], dtype=np.int32),
+            det_track=np.array([d.track_id for d in raw.detections], dtype=np.int32),
+            det_class=np.array([class_index[d.class_name] for d in raw.detections], dtype=np.int16),
+            det_conf=np.array([d.confidence for d in raw.detections], dtype=np.float32),
+            det_box=np.array(
+                [[d.box.x1, d.box.y1, d.box.x2, d.box.y2] for d in raw.detections],
+                dtype=np.float32,
+            ).reshape(-1, 4),
+            flow_offsets=offsets,
+            flow_prev=np.concatenate(prev),
+            flow_next=np.concatenate(next_),
+        )
+
+
+def load_raw(path: Path, key: str) -> RawClip | None:
+    """Load cached detections, or None if they came from a different run."""
+    if not path.exists():
+        return None
+    with np.load(path) as data:
+        header = json.loads(str(data["header"]))
+        if header["key"] != key:
+            return None
+        classes = header["classes"]
+        detections = [
+            Detection(int(frame), int(track), classes[int(cls)], float(conf), Box(*map(float, box)))
+            for frame, track, cls, conf, box in zip(
+                data["det_frame"],
+                data["det_track"],
+                data["det_class"],
+                data["det_conf"],
+                data["det_box"],
+                strict=True,
+            )
+        ]
+        offsets = data["flow_offsets"]
+        prev, next_ = data["flow_prev"], data["flow_next"]
+        pairs = [
+            FlowPair(prev[start:end], next_[start:end])
+            for start, end in itertools.pairwise(offsets)
+        ]
+        return RawClip(
+            video=VideoInfo(**header["video"]),
+            times=data["times"].tolist(),
+            cuts=data["cuts"].tolist(),
+            detections=detections,
+            flow=pairs,
+            model=header["model"],
+        )
