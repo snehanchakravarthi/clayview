@@ -39,6 +39,9 @@ runs/
 node_modules/
 dist/
 
+# Local agent and editor settings
+.claude/
+
 # Environment and OS
 .env
 .env.*
