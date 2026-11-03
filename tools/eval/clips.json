@@ -5,6 +5,7 @@
   "licence": "MIT",
   "author": "comma.ai",
   "note": "one minute, wipers running; CAN speed, gyro and radar truth",
+  "vfov": 51.3,
   "expect": {
    "moving": true,
    "cuts": 0
@@ -212,7 +213,8 @@
   "author": "Illegitimate Barrister",
   "start_s": 60,
   "duration_s": 60,
-  "note": "US, Maryland I-270, dense highway traffic, 14.2 fps; lane dashes say ~115 km/h, pipeline reads ~16",
+  "note": "US, Maryland I-270, dense highway traffic, 14.2 fps; lane dashes say ~115 km/h. Zoomed lens: dashes repeat every 0.0021 in 1/(row - horizon), which for the 12.19 m US cycle and 1.36 m height is a 4480 px focal, 9.2 degrees",
+  "vfov": 9.2,
   "demo": false
  },
  "krakow_city": {
@@ -253,7 +255,8 @@
   "author": "smaug4242",
   "start_s": 1920,
   "duration_s": 60,
-  "note": "Croatia, A3 motorway, trucks, burned-in speed (truth)",
+  "note": "Croatia, A3 motorway, trucks, burned-in speed (truth). A 4x timelapse: the overlay clock gains 4 s every 30 frames, so video-time speed is 4x the overlay",
+  "time_scale": 4.0,
   "fetch": "720p",
   "demo": false,
   "expect": {

@@ -82,3 +82,18 @@ def test_series_fills_gaps_and_stays_smooth() -> None:
     steps, coverage = estimate_ego_series(pairs, times, CAMERA)
     assert coverage > 0.9
     assert all(step.forward_m == pytest.approx(0.4, rel=0.1) for step in steps)
+
+
+def test_zoomed_camera_at_highway_speed() -> None:
+    """A 9 degree camera on I-270 at 115 km/h and 14 fps sees road from 17 m out. A 22 m range cap
+    threw all of it away and ego read zero."""
+    camera = Camera(1280, 720, height_m=1.36, vfov_deg=9.2, horizon_y=356.0)
+    rng = np.random.default_rng(3)
+    x = rng.uniform(-3.0, 3.0, 80)
+    y = rng.uniform(25.0, 120.0, 80)
+    forward_m = 32.0 / 14.2
+    prev = [camera.image_point(a, b) for a, b in zip(x, y, strict=True)]
+    next_ = [camera.image_point(a, b - forward_m) for a, b in zip(x, y, strict=True)]
+    pair = FlowPair(np.array(prev, np.float32), np.array(next_, np.float32))
+    speeds = road_speeds(pair, camera, 1.0 / 14.2)
+    assert speed_from_points(speeds) == pytest.approx(32.0, rel=0.05)

@@ -13,8 +13,9 @@ from clayview.core.types import EgoStep, FlowPair
 
 @dataclass(frozen=True)
 class EgoConfig:
-    near_band_fraction: float = 0.05  # road rows start this far below the horizon
-    max_ground_range_m: float = 22.0
+    # Road rows start this far below the horizon. The limit is in rows, not metres: a 22 m cap
+    # left no road at all on a zoomed camera, whose nearest visible road was 17 m away.
+    near_band_fraction: float = 0.05
     max_ground_lateral_m: float = 9.0
     min_points: int = 8
     # Windows are in seconds, so a 60 fps clip isn't smoothed half as much as a 30 fps one.
@@ -97,7 +98,7 @@ def road_speeds(
     y_prev = scale / (rows_prev[on_road] - camera.horizon)
     y_next = scale / (rows_next[on_road] - camera.horizon)
     x_prev = (pair.prev[on_road, 0] - camera.cx) * y_prev / focal
-    near = (y_prev < cfg.max_ground_range_m) & (np.abs(x_prev) < cfg.max_ground_lateral_m)
+    near = np.abs(x_prev) < cfg.max_ground_lateral_m
     return (y_prev[near] - y_next[near]) / max(dt, 1e-3)
 
 
