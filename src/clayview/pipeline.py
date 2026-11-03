@@ -19,7 +19,7 @@ from clayview.detect import YoloTracker, pick_device
 from clayview.video import BackgroundFlow, cut_thumbnail, probe, read_frames
 from clayview.world import SegMaps
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # 2: wiper-proof cuts
 
 
 @dataclass(frozen=True)
@@ -40,8 +40,8 @@ def extract(
     info = probe(video_path)
     device = pick_device(options.device)
     weights = _resolve_weights(options.weights)
-    tracker = YoloTracker(weights, device, options.imgsz)
-    cut_detector = CutDetector()
+    tracker = YoloTracker(weights, device, options.imgsz, info.fps / options.stride)
+    cut_detector = CutDetector(info.fps / options.stride)
     flow = BackgroundFlow(info.width, info.height)
 
     times: list[float] = []
@@ -60,17 +60,12 @@ def extract(
     for index, (time_s, frame) in enumerate(read_frames(video_path, options.stride)):
         if options.limit_s is not None and time_s > options.limit_s:
             break
-        if cut_detector.update(cut_thumbnail(frame)):
-            cuts.append(index)
-            tracker.reset()
-            flow.reset()
-            previous_boxes = []
-            progress(f"  cut at {time_s:.2f} s")
-
         pair = flow.step(frame, previous_boxes)
         if index > 0:
-            # pairs[i] links frame i to i + 1, and the first frame after a cut has no link back.
-            pairs.append(pair if index not in cuts else EMPTY_FLOW)
+            pairs.append(pair)  # pairs[i] links frame i to i + 1
+        cut = cut_detector.update(cut_thumbnail(frame))
+        if cut is not None:
+            _add_cut(cut, cuts, pairs, times, progress)
 
         frame_detections = tracker.step(index, frame)
         detections.extend(frame_detections)
@@ -83,6 +78,9 @@ def extract(
 
     if not times:
         raise ValueError(f"no frames could be read from {video_path}")
+    last_cut = cut_detector.finish()
+    if last_cut is not None:
+        _add_cut(last_cut, cuts, pairs, times, progress)
 
     duration = info.frame_count / info.fps if info.frame_count else times[-1]
     return RawClip(
@@ -108,9 +106,24 @@ def extract(
     )
 
 
+def _add_cut(
+    cut: int,
+    cuts: list[int],
+    pairs: list[FlowPair],
+    times: list[float],
+    progress: Callable[[str], None],
+) -> None:
+    """Cuts are confirmed a second late. Shots split tracks later, so only the flow needs fixing."""
+    cuts.append(cut)
+    pairs[cut - 1] = EMPTY_FLOW  # the first frame of a shot has no link back
+    progress(f"  cut at {times[cut]:.2f} s")
+
+
 def save_views(path: Path, views: Mapping[tuple[int, int], Sequence[float]], key: str) -> None:
     keys = np.array(list(views), dtype=np.int32).reshape(-1, 2)
-    values = np.array(list(views.values()), dtype=np.float32).reshape(len(keys), -1)
+    # A clip with no usable car crops has no views; reshape(0, -1) can't infer that width.
+    width = len(next(iter(views.values()))) if views else 0
+    values = np.array(list(views.values()), dtype=np.float32).reshape(len(keys), width)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as handle:
         np.savez_compressed(handle, key=np.array(key), keys=keys, values=values)

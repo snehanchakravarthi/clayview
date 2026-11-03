@@ -24,6 +24,8 @@ uv run clayview process clips/clip.mp4   # clip to out/clip.scene.json
 uv run clayview stats out/clip.scene.json
 uv run pytest
 uv run ruff check && uv run ruff format --check
+uv run python tools/eval/eval.py fetch    # clips from many cameras, into clips/eval/
+uv run python tools/eval/eval.py run      # process and score them; `score` rescores
 
 cd viewer
 bun install
@@ -62,6 +64,7 @@ viewer/src/
   world/         stage, the clay street (surface, flora, props, massing), traffic, camera views
   app/           playback clock, loading, scrubber, debug overlay
   main.ts        wiring
+tools/eval/       clips.json lists clips from other cameras and what's known about each
 clips/ out/ models/   gitignored
 ```
 
@@ -74,6 +77,8 @@ Ego frame: `x` right, `y` forward, metres, origin on the road under the camera. 
 ## Conventions
 
 - **Check against footage.** Synthetic data passed while real clips produced seven false cuts, reversed parked cars and an ego speed a third too low. When output looks wrong, measure it on a real clip; add the failure as a test.
+- **Check against other cameras.** Run `tools/eval/eval.py` before calling a pipeline change done. comma2k19 has speed, pose and radar truth; tuning on one dashcam is how wipers became cuts and a hood reflection cut ego speed by 40%.
+- Anything counted in frames should be a time: clips run from 20 to 60 fps, and `--stride` changes the rate again.
 - Core stays numpy-only and takes plain dataclasses. Anything needing a model or a frame goes outside `core/`.
 - Viewer state at time t is a pure function of t. No stateful fades or per-frame integration, so scrubbing can't leave ghosts.
 - Clay palette lives in `world/palette.ts`. Terracotta is reserved for ego.

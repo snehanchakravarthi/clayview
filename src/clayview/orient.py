@@ -30,7 +30,7 @@ MODEL_NAME = "cfv-convnext-small"
 INPUT_SIZE = 224
 CROP_MARGIN = 0.1
 MIN_CROP_HEIGHT_PX = 30.0
-SAMPLE_EVERY = 5  # one view per this many frames; a car's angle changes slowly
+VIEW_INTERVAL_S = 1 / 6  # a car's angle changes slowly
 BATCH_SIZE = 32
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -50,6 +50,11 @@ def fetch_weights(path: Path = WEIGHTS_PATH) -> Path:
     return path
 
 
+def sample_every(fps: float) -> int:
+    """Processed frames between car views, so a 60 fps clip doesn't count each car twice."""
+    return max(round(VIEW_INTERVAL_S * fps), 1)
+
+
 def crop_bounds(box: Box, width: int, height: int) -> tuple[int, int, int, int]:
     """Box plus a margin, clamped to the frame, as integer x1, y1, x2, y2."""
     margin = CROP_MARGIN * max(box.width, box.height)
@@ -61,11 +66,11 @@ def crop_bounds(box: Box, width: int, height: int) -> tuple[int, int, int, int]:
     )
 
 
-def wanted_detections(detections: Sequence[Detection]) -> dict[int, list[Detection]]:
-    """Which detections to look at, by frame: cars big enough to read, sampled over time."""
+def wanted_detections(detections: Sequence[Detection], every: int) -> dict[int, list[Detection]]:
+    """Which detections to look at, by frame: cars big enough to read, one frame in `every`."""
     by_frame: dict[int, list[Detection]] = defaultdict(list)
     for detection in detections:
-        if detection.class_name != "car" or detection.frame % SAMPLE_EVERY != 0:
+        if detection.class_name != "car" or detection.frame % every != 0:
             continue
         if detection.box.height >= MIN_CROP_HEIGHT_PX:
             by_frame[detection.frame].append(detection)
@@ -138,11 +143,12 @@ def collect_views(
     video_path: Path,
     detections: Sequence[Detection],
     stride: int,
+    every: int,
     device: str,
     progress: Callable[[str], None] = print,
 ) -> Views:
     """Run the view model over the clip's car crops."""
-    wanted = wanted_detections(detections)
+    wanted = wanted_detections(detections, every)
     total = sum(len(items) for items in wanted.values())
     progress(f"reading car views from {total} crops on {device}")
     model = ViewModel(fetch_weights(), device)

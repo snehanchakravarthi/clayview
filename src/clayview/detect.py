@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -24,10 +25,26 @@ def pick_device(requested: str = "auto") -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-class YoloTracker:
-    """Runs detection and ByteTrack one frame at a time, so shots can reset the tracker."""
+def tracker_config(fps: float) -> Path:
+    """bytetrack.yaml with its lost-track buffer scaled to this clip's frame rate.
 
-    def __init__(self, weights: str, device: str, imgsz: int) -> None:
+    Ultralytics counts the buffer in frames, so the same setting lasted 0.75 s at 60 fps and 4.5 s
+    at 10. The file's value is for 30 fps.
+    """
+    lines = TRACKER_CONFIG.read_text().splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("track_buffer:"):
+            frames = max(round(int(line.split(":")[1].split("#")[0]) * fps / 30.0), 1)
+            lines[index] = f"track_buffer: {frames}"
+    path = Path(tempfile.gettempdir()) / f"clayview-bytetrack-{fps:.3f}.yaml"
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+class YoloTracker:
+    """Runs detection and ByteTrack one frame at a time."""
+
+    def __init__(self, weights: str, device: str, imgsz: int, fps: float) -> None:
         from ultralytics import YOLO
 
         self.model: Any = YOLO(weights)
@@ -36,18 +53,13 @@ class YoloTracker:
         names: dict[int, str] = self.model.names
         self.class_ids = [index for index, name in names.items() if name in CLASS_PRIORS]
         self.names = names
-
-    def reset(self) -> None:
-        """Forget all tracks. Called at a hard cut."""
-        predictor = self.model.predictor
-        for tracker in getattr(predictor, "trackers", []) if predictor else []:
-            tracker.reset()
+        self.tracker_config = tracker_config(fps)
 
     def step(self, frame_index: int, frame: np.ndarray) -> list[Detection]:
         results = self.model.track(
             frame,
             persist=True,
-            tracker=str(TRACKER_CONFIG),
+            tracker=str(self.tracker_config),
             classes=self.class_ids,
             imgsz=self.imgsz,
             device=self.device,

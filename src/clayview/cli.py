@@ -91,14 +91,15 @@ def _street_labels(
 ) -> SegMaps:
     from clayview.detect import pick_device
     from clayview.pipeline import load_seg, save_seg
-    from clayview.segment import MODEL_NAME, SEGMENT_EVERY, segment_clip
+    from clayview.segment import MODEL_NAME, label_every, segment_clip
 
     seg_path = raw_path.with_name(raw_path.name.removesuffix(".raw.npz") + ".seg.npz")
-    seg_key = json.dumps([key, MODEL_NAME, SEGMENT_EVERY])
+    every = label_every(raw.video.fps)
+    seg_key = json.dumps([key, MODEL_NAME, every])
     seg = None if fresh else load_seg(seg_path, seg_key)
     if seg is None:
         device = pick_device(options.device)
-        seg = segment_clip(video, options.stride, len(raw.times), device)
+        seg = segment_clip(video, options.stride, len(raw.times), device, every)
         save_seg(seg_path, seg, seg_key)
     else:
         print(f"reusing street labels from {seg_path}")
@@ -114,15 +115,16 @@ def _with_views(
     fresh: bool,
 ) -> RawClip:
     from clayview.detect import pick_device
-    from clayview.orient import MODEL_NAME, SAMPLE_EVERY, collect_views
+    from clayview.orient import MODEL_NAME, collect_views, sample_every
     from clayview.pipeline import load_views, save_views
 
     views_path = raw_path.with_name(raw_path.name.removesuffix(".raw.npz") + ".views.npz")
-    views_key = json.dumps([key, MODEL_NAME, SAMPLE_EVERY])
+    every = sample_every(raw.video.fps)
+    views_key = json.dumps([key, MODEL_NAME, every])
     views = None if fresh else load_views(views_path, views_key)
     if views is None:
         device = pick_device(options.device)
-        views = collect_views(video, raw.detections, options.stride, device)
+        views = collect_views(video, raw.detections, options.stride, every, device)
         save_views(views_path, views, views_key)
     else:
         print(f"reusing car views from {views_path}")

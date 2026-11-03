@@ -22,6 +22,8 @@ from clayview.core.projection import CLASS_PRIORS
 from clayview.core.types import Detection, FlowPair
 
 MIN_FLOW_PX = 1.2
+# A camera tilted up puts the horizon low: 0.88 of the height on a New Zealand highway clip.
+MAX_FOE_ROW = 0.95
 
 
 @dataclass(frozen=True)
@@ -131,16 +133,16 @@ def fit_focus_of_expansion(
     pairs: Sequence[FlowPair],
     image_width: int,
     image_height: int,
-    yaw_px: Sequence[float] | None = None,
+    rotation_px: Sequence[tuple[float, float]] | None = None,
     max_points: int = 40_000,
     iterations: int = 6,
 ) -> FoeFit | None:
     """Least-squares intersection of flow lines, with outlier rejection.
 
-    `yaw_px` is the horizontal image shift per pair caused by ego yaw. Removing it keeps turns from
-    dragging the estimate sideways; frames with strong yaw are skipped outright.
+    `rotation_px` is the image shift (right, down) per pair caused by ego yaw and pitch. Removing it
+    keeps turns and bumps from dragging the estimate; frames with strong yaw are skipped outright.
     """
-    points, normals = _flow_lines(pairs, image_height, yaw_px)
+    points, normals = _flow_lines(pairs, image_height, rotation_px)
     if len(points) < 200:
         return None
     if len(points) > max_points:
@@ -167,15 +169,87 @@ def fit_focus_of_expansion(
 
     if not (0.2 * image_width <= foe[0] <= 0.8 * image_width):
         return None
-    if not (0.2 * image_height <= foe[1] <= 0.85 * image_height):
+    if not (0.2 * image_height <= foe[1] <= MAX_FOE_ROW * image_height):
         return None
     return FoeFit(float(foe[0]), float(foe[1]), int(active.sum()), residual)
+
+
+def fit_expansion(
+    pairs: Sequence[FlowPair],
+    image_width: int,
+    image_height: int,
+    bottom: float,
+    iterations: int = 6,
+    min_points: int = 20,
+) -> FoeFit | None:
+    """Focus of expansion solved jointly with each frame's yaw and pitch.
+
+    Static points flow away from the FoE (fx, fy) plus a shift (r, q) from rotation, so per point
+
+        dx y - dy x = fy dx - fx dy + r y - q x + c,    with c = q fx - r fy
+
+    which is linear: fx and fy are shared by the shot, r, q and c belong to each frame. An error in
+    the FoE looks like rotation, except that it grows with each point's flow while rotation doesn't,
+    so solving both together separates them. Fitting the FoE first and the rotation after, or in
+    turns, left it 5 to 7 px off on comma2k19; this lands within 2.3 px of the truth.
+
+    Points below `bottom` (hood, dash) are left out: they don't move, which reads as no rotation.
+    """
+    center = np.array([image_width / 2.0, image_height / 2.0])
+    frames: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+    for pair in pairs:
+        keep = pair.prev[:, 1] < bottom
+        if int(keep.sum()) < min_points:
+            continue
+        p = pair.prev[keep].astype(float) - center
+        d = (pair.next[keep] - pair.prev[keep]).astype(float)
+        target = d[:, 0] * p[:, 1] - d[:, 1] * p[:, 0]
+        shared = np.stack([d[:, 0], -d[:, 1]], axis=1)  # coefficients of fy, fx
+        own = np.stack([p[:, 1], -p[:, 0], np.ones(len(p))], axis=1)  # of r, q, c
+        frames.append((target, shared, own))
+    if sum(len(target) for target, _, _ in frames) < 200:
+        return None
+
+    weights = [np.ones(len(target)) for target, _, _ in frames]
+    foe = np.zeros(2)
+    residual_px = 0.0
+    for _ in range(iterations):
+        targets, columns = [], []
+        for (target, shared, own), weight in zip(frames, weights, strict=True):
+            # Project out the frame's own unknowns, leaving an equation in fx and fy alone.
+            root = np.sqrt(weight)
+            basis, _ = np.linalg.qr(own * root[:, None])
+            t, s = target * root, shared * root[:, None]
+            targets.append(t - basis @ (basis.T @ t))
+            columns.append(s - basis @ (basis.T @ s))
+        try:
+            foe, *_ = np.linalg.lstsq(np.concatenate(columns), np.concatenate(targets), rcond=None)
+        except np.linalg.LinAlgError:
+            return None
+        spreads = []
+        for index, (target, shared, own) in enumerate(frames):
+            # Moving cars and bad tracks are outliers, not noise: reweight them down.
+            rest = target - shared @ foe
+            coefficients, *_ = np.linalg.lstsq(own, rest, rcond=None)
+            residual = np.abs(rest - own @ coefficients)
+            spread = max(float(np.median(residual)), 1e-6)
+            weights[index] = 1.0 / np.maximum(residual / (2.0 * spread), 1.0)
+            spreads.append(spread)
+        residual_px = float(np.median(spreads))
+
+    x, y = float(foe[1] + center[0]), float(foe[0] + center[1])
+    if not (0.2 * image_width <= x <= 0.8 * image_width):
+        return None
+    if not (0.2 * image_height <= y <= MAX_FOE_ROW * image_height):
+        return None
+    points = sum(len(target) for target, _, _ in frames)
+    return FoeFit(x, y, points, residual_px)
 
 
 def _flow_lines(
     pairs: Sequence[FlowPair],
     image_height: int,
-    yaw_px: Sequence[float] | None,
+    rotation_px: Sequence[tuple[float, float]] | None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Midpoints and unit normals of usable flow vectors from the frames that drive straight."""
     all_points: list[np.ndarray] = []
@@ -183,11 +257,11 @@ def _flow_lines(
     for index, pair in enumerate(pairs):
         if len(pair.prev) == 0:
             continue
-        shift = 0.0 if yaw_px is None else float(yaw_px[index])
-        if abs(shift) > 0.004 * image_height:
+        across, down = (0.0, 0.0) if rotation_px is None else rotation_px[index]
+        if abs(across) > 0.004 * image_height:
             continue
         flow = (pair.next - pair.prev).astype(float)
-        flow[:, 0] -= shift
+        flow -= (across, down)
         length = np.hypot(flow[:, 0], flow[:, 1])
         usable = length > MIN_FLOW_PX
         if usable.sum() == 0:
@@ -200,13 +274,68 @@ def _flow_lines(
     return np.concatenate(all_points), np.concatenate(all_normals)
 
 
+def estimate_ground_bottom(
+    pairs: Sequence[FlowPair],
+    horizon_y: float,
+    image_height: int,
+    bins: int = 32,
+    min_frames: int = 10,
+) -> float | None:
+    """Row where the visible road ends, from where flow stops behaving like a ground plane.
+
+    On the road, vertical flow grows with (row - horizon)^2. Divided by that, every road row reads
+    about the same; the hood, dash or a reflection on the glass reads near zero, and a shiny hood's
+    reflections read anything at all. Each row band is compared to a reference band of near road
+    over the frames where the road clearly moves.
+
+    The older test, the first moving row up from the bottom, failed whenever something moved down
+    there. comma2k19's hood reflection and a portrait phone's purple hood both counted as road, and
+    the reflection's static points outnumbered the moving road and pulled ego speed down by 40%.
+    """
+    reference = (horizon_y + 0.06 * image_height, horizon_y + 0.2 * image_height)
+    edges = np.linspace(horizon_y, image_height, bins + 1)
+    per_bin: list[list[float]] = [[] for _ in range(bins)]
+    frames = 0
+    for pair in pairs:
+        if len(pair.prev) < 30:
+            continue
+        rows = pair.prev[:, 1].astype(float)
+        normalised = (pair.next[:, 1] - rows) / np.maximum(rows - horizon_y, 1.0) ** 2
+        in_reference = (rows > reference[0]) & (rows < reference[1])
+        if in_reference.sum() < 8:
+            continue
+        level = float(np.median(normalised[in_reference]))
+        if level * (reference[1] - horizon_y) ** 2 < 2.0:
+            continue  # the road isn't moving enough to tell it from the hood
+        frames += 1
+        index = np.digitize(rows, edges) - 1
+        for band in range(bins):
+            in_band = index == band
+            if in_band.sum() >= 3:
+                per_bin[band].append(float(np.median(normalised[in_band])) / level)
+    if frames < min_frames:
+        return None
+
+    relative = [float(np.median(values)) if len(values) >= 5 else None for values in per_bin]
+    start = int(np.searchsorted(edges, reference[1]))
+    for band in range(start, bins - 1):
+        here, below = relative[band], relative[band + 1]
+        # Two bands in a row, so one noisy band doesn't end the road.
+        if here is not None and here < 0.4 and (below is None or below < 0.4):
+            return float(edges[band])
+    return None
+
+
 def estimate_visible_bottom(
     pairs: Sequence[FlowPair],
     image_height: int,
     bins: int = 24,
     min_row_fraction: float = 0.55,
 ) -> float | None:
-    """Row where the hood or dash starts: below it, nothing moves while the road above does."""
+    """Row where the hood or dash starts: below it, nothing moves while the road above does.
+
+    A fallback for when the horizon is unknown or the road barely moves; see estimate_ground_bottom.
+    """
     rows: list[np.ndarray] = []
     magnitudes: list[np.ndarray] = []
     for pair in pairs:

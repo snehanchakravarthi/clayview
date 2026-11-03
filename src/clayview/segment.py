@@ -22,7 +22,13 @@ MODEL_NAME = "facebook/mask2former-swin-large-mapillary-vistas-semantic"
 MODEL_REVISION = "4772b6bf101d91f2534c106dc524d906aeb3c68a"
 CACHE_DIR = Path("models/hf")
 MAP_WIDTH = 1024
-SEGMENT_EVERY = 10  # the street changes slowly; label one frame in this many
+SEGMENT_INTERVAL_S = 1 / 3  # the street changes slowly
+
+
+def label_every(fps: float) -> int:
+    """Processed frames between street labels. Paint and pole thresholds count labels, so the
+    rate has to be the same in seconds whatever the clip's frame rate."""
+    return max(round(SEGMENT_INTERVAL_S * fps), 1)
 
 
 def map_size(width: int, height: int) -> tuple[int, int]:
@@ -70,7 +76,7 @@ def segment_clip(
     stride: int,
     frame_count: int,
     device: str,
-    every: int = SEGMENT_EVERY,
+    every: int,
     progress: Callable[[str], None] = print,
 ) -> SegMaps:
     """Label one processed frame in `every`, up to frame_count."""

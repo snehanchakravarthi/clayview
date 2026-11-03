@@ -1,0 +1,208 @@
+{
+ "comma2k19": {
+  "source": "comma2k19",
+  "url": "https://github.com/commaai/comma2k19/tree/master/Example_1",
+  "licence": "MIT",
+  "author": "comma.ai",
+  "note": "one minute, wipers running; CAN speed, gyro and radar truth",
+  "expect": {
+   "moving": true,
+   "cuts": 0
+  }
+ },
+ "kose_winter": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/3/3e/Dashcam_video_of_driving_through_Kose_in_December_2021.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Sillerkiil",
+  "start_s": 30,
+  "duration_s": 60,
+  "note": "Estonia, snow, low sun"
+ },
+ "ljubljana_fog_night": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/3/3d/On_the_Road-_Foggy_Ljubljana.webm",
+  "licence": "CC BY 3.0",
+  "author": "Renato Lozinšek",
+  "start_s": 300,
+  "duration_s": 60,
+  "note": "night, fog, dash visible, overlay"
+ },
+ "kranj_glare": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/7/71/On_the_Road-_Driving_through_Kranj.webm",
+  "licence": "CC BY 3.0",
+  "author": "Renato Lozinšek",
+  "start_s": 100,
+  "duration_s": 60,
+  "note": "sun glare, dash visible"
+ },
+ "doha_rain_360p": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/8/82/Driving_under_rain_-_Doha%2C_Qatar.webm",
+  "licence": "CC BY 3.0",
+  "author": "Muhammad Basheer",
+  "start_s": 30,
+  "duration_s": 60,
+  "note": "night, rain, 360p",
+  "expect": {
+   "moving": true
+  }
+ },
+ "matanzas_portrait": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/c/ca/Driving_through_Matanzas_1st_of_May_2017.webm",
+  "licence": "CC BY 3.0",
+  "author": "papegoja4",
+  "start_s": 0,
+  "duration_s": 35,
+  "note": "portrait phone, hood",
+  "expect": {
+   "moving": true
+  }
+ },
+ "christchurch_left": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/9/94/Driving_from_Christchurch_to_Ashburton_in_the_Canterbury_Region_of_New_Zealand.webm",
+  "licence": "CC BY 3.0",
+  "author": "NewZealandRoadTrips",
+  "start_s": 900,
+  "duration_s": 60,
+  "note": "NZ, drives on the left",
+  "expect": {
+   "moving": true
+  },
+  "fetch": "720p"
+ },
+ "mirpur_dhaka": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/7/79/Mirpur_Road_-_Dhanmondi_Area_-_Dhaka_2015-05-29_1894.ogv",
+  "licence": "CC BY 3.0",
+  "author": "Gangulybiswarup",
+  "start_s": 0,
+  "duration_s": 60,
+  "note": "rickshaw seat, mixed traffic"
+ },
+ "urdu_dhaka": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/e/eb/Urdu_Road_-_Chawkbazaar-Lalbagh_Area_-_Dhaka_2015-05-29_2742.ogv",
+  "licence": "CC BY 3.0",
+  "author": "Gangulybiswarup",
+  "start_s": 20,
+  "duration_s": 60,
+  "note": "dense rickshaws, no lanes"
+ },
+ "leh_bike": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/0/06/Bike_Trip_to_Leh-Ladakh-_Part_1-_Journey_through_Spiti_Valley.webm",
+  "licence": "CC BY 3.0",
+  "author": "Traveler and Trekker",
+  "start_s": 120,
+  "duration_s": 60,
+  "note": "India, motorcycle, mountain road"
+ },
+ "bled_rollei": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/e/e2/Lake_Bled%2C_Slovenia_%28Rollei_CarDVR-110%29.ogv",
+  "licence": "CC BY 3.0",
+  "author": "smaug4242",
+  "start_s": 100,
+  "duration_s": 60,
+  "note": "burned-in speed and GPS",
+  "expect": {
+   "moving": true,
+   "cuts": 0,
+   "speed_kmh": [
+    [
+     2,
+     28
+    ],
+    [
+     6,
+     25
+    ],
+    [
+     10,
+     15
+    ],
+    [
+     14,
+     16
+    ],
+    [
+     18,
+     20
+    ],
+    [
+     22,
+     22
+    ],
+    [
+     26,
+     20
+    ],
+    [
+     30,
+     28
+    ],
+    [
+     34,
+     30
+    ],
+    [
+     38,
+     34
+    ],
+    [
+     42,
+     35
+    ],
+    [
+     46,
+     34
+    ],
+    [
+     50,
+     35
+    ],
+    [
+     54,
+     24
+    ],
+    [
+     58,
+     35
+    ]
+   ]
+  }
+ },
+ "wintry_wipers": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/0/01/Wintry_Dashcam_%28Feb_2016%2C_720p%29.webm",
+  "licence": "CC BY 3.0",
+  "author": "brownpau",
+  "start_s": 600,
+  "duration_s": 60,
+  "note": "wipers, rain on glass",
+  "expect": {
+   "moving": true,
+   "cuts": 0
+  }
+ },
+ "montblanc_tunnel": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/7/79/Montblanc.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "LKorhonen",
+  "start_s": 20,
+  "duration_s": 60,
+  "note": "tunnel"
+ },
+ "touareg_interior": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/6/62/Volkswagen_Touareg_2004_2.5_R5_TDI_-_POV_Driving_on_Highway.webm",
+  "licence": "CC BY 3.0",
+  "author": "Miha Lesjak",
+  "start_s": 200,
+  "duration_s": 60,
+  "note": "interior POV, steering wheel",
+  "expect": {
+   "moving": true
+  }
+ },
+ "dashcam_pip": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/3/33/Dashcam_film.webm",
+  "licence": "CC BY-SA 3.0",
+  "author": "Frukko",
+  "start_s": 60,
+  "duration_s": 60,
+  "note": "picture in picture, black border"
+ }
+}

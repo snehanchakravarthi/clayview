@@ -2,7 +2,9 @@ import numpy as np
 import pytest
 
 from clayview.core.horizon import (
+    estimate_ground_bottom,
     estimate_visible_bottom,
+    fit_expansion,
     fit_focus_of_expansion,
     fit_vehicle_horizon,
     vehicle_height_for_horizon,
@@ -83,7 +85,7 @@ def test_focus_of_expansion_needs_motion() -> None:
 def test_yaw_is_removed_from_the_focus_of_expansion() -> None:
     pairs = expansion_pairs((960.0, 640.0))
     shifted = [FlowPair(p.prev, p.next + np.array([1.5, 0.0], np.float32)) for p in pairs]
-    fit = fit_focus_of_expansion(shifted, 1920, 1080, [1.5] * len(pairs))
+    fit = fit_focus_of_expansion(shifted, 1920, 1080, [(1.5, 0.0)] * len(pairs))
     assert fit is not None
     assert fit.x == pytest.approx(960.0, abs=6.0)
 
@@ -108,3 +110,60 @@ def test_visible_bottom_is_none_without_a_hood() -> None:
     points = rng.uniform([0, 0], [1920, 1080], (300, 2)).astype(np.float32)
     moved = points + np.array([0.0, 5.0], np.float32)
     assert estimate_visible_bottom([FlowPair(points, moved)] * 10, 1080) is None
+
+
+def scene_pairs(
+    foe: tuple[float, float], rotation: list[tuple[float, float]], right_only: bool = False
+) -> list[FlowPair]:
+    """Static points at random depths flowing away from the FoE, plus each frame's rotation."""
+    rng = np.random.default_rng(3)
+    pairs: list[FlowPair] = []
+    for shift in rotation:
+        low = [1100.0 if right_only else 50.0, 50.0]
+        points = rng.uniform(low, [1870.0, 1030.0], (200, 2))
+        rate = rng.uniform(0.002, 0.05, (200, 1))  # speed over depth: near points flow faster
+        moved = points + (points - np.array(foe)) * rate + np.array(shift)
+        moved += rng.normal(0.0, 0.05, moved.shape)
+        pairs.append(FlowPair(points.astype(np.float32), moved.astype(np.float32)))
+    return pairs
+
+
+def test_expansion_is_solved_with_rotation() -> None:
+    """Fitting the FoE first and rotation after left it 7 px off on comma2k19, and every pixel of
+    column error read as 2.7 degrees a minute of false turning."""
+    rotation = [(float(np.sin(i / 3.0)) * 3.0, float(np.cos(i / 4.0))) for i in range(30)]
+    pairs = scene_pairs((1010.0, 600.0), rotation, right_only=True)
+    fit = fit_expansion(pairs, 1920, 1080, bottom=1080.0)
+    assert fit is not None
+    assert fit.x == pytest.approx(1010.0, abs=1.5)
+    assert fit.y == pytest.approx(600.0, abs=1.5)
+
+
+def ground_pairs(horizon: float, hood: float, hood_flow: float, frames: int = 20) -> list[FlowPair]:
+    """Road flow growing with (row - horizon)^2 down to the hood; the hood does its own thing."""
+    rng = np.random.default_rng(4)
+    pairs: list[FlowPair] = []
+    for _ in range(frames):
+        road = rng.uniform([0.0, horizon + 5.0], [1920.0, hood], (300, 2))
+        below = rng.uniform([0.0, hood], [1920.0, 1080.0], (300, 2))
+        road_next = road.copy()
+        road_next[:, 1] += (road[:, 1] - horizon) ** 2 * 2e-4
+        below_next = below + np.array([0.0, hood_flow])
+        points = np.concatenate([road, below]).astype(np.float32)
+        moved = np.concatenate([road_next, below_next]).astype(np.float32)
+        pairs.append(FlowPair(points, moved))
+    return pairs
+
+
+@pytest.mark.parametrize("hood_flow", [0.0, -3.0, 4.0])
+def test_ground_bottom_finds_where_the_road_ends(hood_flow: float) -> None:
+    """A static reflection, or a shiny hood whose reflections move, both counted as road before:
+    on comma2k19 the static points outnumbered the road and cut ego speed by 40%."""
+    bottom = estimate_ground_bottom(ground_pairs(540.0, 800.0, hood_flow), 540.0, 1080)
+    assert bottom is not None
+    assert 760.0 <= bottom <= 810.0
+
+
+def test_ground_bottom_needs_the_road_to_move() -> None:
+    still = [FlowPair(p.prev, p.prev) for p in ground_pairs(540.0, 800.0, 0.0)]
+    assert estimate_ground_bottom(still, 540.0, 1080) is None

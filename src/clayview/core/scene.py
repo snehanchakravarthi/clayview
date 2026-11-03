@@ -13,10 +13,12 @@ from clayview.core.camera import (
     DEFAULT_VFOV_DEG,
     Camera,
 )
-from clayview.core.ego import estimate_ego_series, yaw_step
+from clayview.core.ego import estimate_ego_series
 from clayview.core.heading import EgoPath
 from clayview.core.horizon import (
+    estimate_ground_bottom,
     estimate_visible_bottom,
+    fit_expansion,
     fit_focus_of_expansion,
     fit_vehicle_horizon,
     vehicle_height_for_horizon,
@@ -78,14 +80,11 @@ def calibrate(
 ) -> Calibration:
     """Work out one shot's camera, preferring what the user pinned, then the clip, then defaults."""
     width, height = video.width, video.height
-    bottom = estimate_visible_bottom(pairs, height)
-
     foe = fit_focus_of_expansion(pairs, width, height)
     if foe is not None:
-        # The first pass can't tell turning from travelling. Remove yaw and solve again.
-        rough = Camera(width, height, vfov_deg=options.vfov_deg, horizon_y=foe.y)
-        shifts = [_yaw_shift_px(pair, rough) for pair in pairs]
-        foe = fit_focus_of_expansion(pairs, width, height, shifts) or foe
+        # The line fit can't tell turning from travelling; solve again with rotation in the model.
+        ground = estimate_ground_bottom(pairs, foe.y, height) or float(height)
+        foe = fit_expansion(pairs, width, height, ground) or foe
 
     samples = vehicle_samples(detections, width, height)
     vehicles = fit_vehicle_horizon(samples, height)
@@ -101,6 +100,10 @@ def calibrate(
         horizon_y, horizon_source = None, "default"
 
     resolved_horizon = height * 0.5 if horizon_y is None else horizon_y
+    bottom = None if horizon_y is None else estimate_ground_bottom(pairs, horizon_y, height)
+    if bottom is None:
+        bottom = estimate_visible_bottom(pairs, height)
+
     height_m = DEFAULT_HEIGHT_M
     height_source = "default"
     if options.height_m is not None:
@@ -120,11 +123,6 @@ def calibrate(
         visible_bottom=bottom,
     )
     return Calibration(camera, horizon_source, height_source)
-
-
-def _yaw_shift_px(pair: FlowPair, camera: Camera) -> float:
-    yaw = yaw_step(pair, camera)
-    return 0.0 if yaw is None else -yaw * camera.focal_px
 
 
 def build_scene(
