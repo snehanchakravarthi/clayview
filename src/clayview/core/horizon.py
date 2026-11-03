@@ -200,13 +200,68 @@ def _flow_lines(
     return np.concatenate(all_points), np.concatenate(all_normals)
 
 
+def estimate_ground_bottom(
+    pairs: Sequence[FlowPair],
+    horizon_y: float,
+    image_height: int,
+    bins: int = 32,
+    min_frames: int = 10,
+) -> float | None:
+    """Row where the visible road ends, from where flow stops behaving like a ground plane.
+
+    On the road, vertical flow grows with (row - horizon)^2. Divided by that, every road row reads
+    about the same; the hood, dash or a reflection on the glass reads near zero, and a shiny hood's
+    reflections read anything at all. Each row band is compared to a reference band of near road
+    over the frames where the road clearly moves.
+
+    The older test, the first moving row up from the bottom, failed whenever something moved down
+    there. comma2k19's hood reflection and a portrait phone's purple hood both counted as road, and
+    the reflection's static points outnumbered the moving road and pulled ego speed down by 40%.
+    """
+    reference = (horizon_y + 0.06 * image_height, horizon_y + 0.2 * image_height)
+    edges = np.linspace(horizon_y, image_height, bins + 1)
+    per_bin: list[list[float]] = [[] for _ in range(bins)]
+    frames = 0
+    for pair in pairs:
+        if len(pair.prev) < 30:
+            continue
+        rows = pair.prev[:, 1].astype(float)
+        normalised = (pair.next[:, 1] - rows) / np.maximum(rows - horizon_y, 1.0) ** 2
+        in_reference = (rows > reference[0]) & (rows < reference[1])
+        if in_reference.sum() < 8:
+            continue
+        level = float(np.median(normalised[in_reference]))
+        if level * (reference[1] - horizon_y) ** 2 < 2.0:
+            continue  # the road isn't moving enough to tell it from the hood
+        frames += 1
+        index = np.digitize(rows, edges) - 1
+        for band in range(bins):
+            in_band = index == band
+            if in_band.sum() >= 3:
+                per_bin[band].append(float(np.median(normalised[in_band])) / level)
+    if frames < min_frames:
+        return None
+
+    relative = [float(np.median(values)) if len(values) >= 5 else None for values in per_bin]
+    start = int(np.searchsorted(edges, reference[1]))
+    for band in range(start, bins - 1):
+        here, below = relative[band], relative[band + 1]
+        # Two bands in a row, so one noisy band doesn't end the road.
+        if here is not None and here < 0.4 and (below is None or below < 0.4):
+            return float(edges[band])
+    return None
+
+
 def estimate_visible_bottom(
     pairs: Sequence[FlowPair],
     image_height: int,
     bins: int = 24,
     min_row_fraction: float = 0.55,
 ) -> float | None:
-    """Row where the hood or dash starts: below it, nothing moves while the road above does."""
+    """Row where the hood or dash starts: below it, nothing moves while the road above does.
+
+    A fallback for when the horizon is unknown or the road barely moves; see estimate_ground_bottom.
+    """
     rows: list[np.ndarray] = []
     magnitudes: list[np.ndarray] = []
     for pair in pairs:

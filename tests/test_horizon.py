@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from clayview.core.horizon import (
+    estimate_ground_bottom,
     estimate_visible_bottom,
     fit_focus_of_expansion,
     fit_vehicle_horizon,
@@ -108,3 +109,33 @@ def test_visible_bottom_is_none_without_a_hood() -> None:
     points = rng.uniform([0, 0], [1920, 1080], (300, 2)).astype(np.float32)
     moved = points + np.array([0.0, 5.0], np.float32)
     assert estimate_visible_bottom([FlowPair(points, moved)] * 10, 1080) is None
+
+
+def ground_pairs(horizon: float, hood: float, hood_flow: float, frames: int = 20) -> list[FlowPair]:
+    """Road flow growing with (row - horizon)^2 down to the hood; the hood does its own thing."""
+    rng = np.random.default_rng(4)
+    pairs: list[FlowPair] = []
+    for _ in range(frames):
+        road = rng.uniform([0.0, horizon + 5.0], [1920.0, hood], (300, 2))
+        below = rng.uniform([0.0, hood], [1920.0, 1080.0], (300, 2))
+        road_next = road.copy()
+        road_next[:, 1] += (road[:, 1] - horizon) ** 2 * 2e-4
+        below_next = below + np.array([0.0, hood_flow])
+        points = np.concatenate([road, below]).astype(np.float32)
+        moved = np.concatenate([road_next, below_next]).astype(np.float32)
+        pairs.append(FlowPair(points, moved))
+    return pairs
+
+
+@pytest.mark.parametrize("hood_flow", [0.0, -3.0, 4.0])
+def test_ground_bottom_finds_where_the_road_ends(hood_flow: float) -> None:
+    """A static reflection, or a shiny hood whose reflections move, both counted as road before:
+    on comma2k19 the static points outnumbered the road and cut ego speed by 40%."""
+    bottom = estimate_ground_bottom(ground_pairs(540.0, 800.0, hood_flow), 540.0, 1080)
+    assert bottom is not None
+    assert 760.0 <= bottom <= 810.0
+
+
+def test_ground_bottom_needs_the_road_to_move() -> None:
+    still = [FlowPair(p.prev, p.prev) for p in ground_pairs(540.0, 800.0, 0.0)]
+    assert estimate_ground_bottom(still, 540.0, 1080) is None

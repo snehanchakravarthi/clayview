@@ -16,6 +16,7 @@ from clayview.core.camera import (
 from clayview.core.ego import estimate_ego_series, yaw_step
 from clayview.core.heading import EgoPath
 from clayview.core.horizon import (
+    estimate_ground_bottom,
     estimate_visible_bottom,
     fit_focus_of_expansion,
     fit_vehicle_horizon,
@@ -78,8 +79,6 @@ def calibrate(
 ) -> Calibration:
     """Work out one shot's camera, preferring what the user pinned, then the clip, then defaults."""
     width, height = video.width, video.height
-    bottom = estimate_visible_bottom(pairs, height)
-
     foe = fit_focus_of_expansion(pairs, width, height)
     if foe is not None:
         # The first pass can't tell turning from travelling. Remove yaw and solve again.
@@ -101,6 +100,10 @@ def calibrate(
         horizon_y, horizon_source = None, "default"
 
     resolved_horizon = height * 0.5 if horizon_y is None else horizon_y
+    bottom = None if horizon_y is None else estimate_ground_bottom(pairs, horizon_y, height)
+    if bottom is None:
+        bottom = estimate_visible_bottom(pairs, height)
+
     height_m = DEFAULT_HEIGHT_M
     height_source = "default"
     if options.height_m is not None:
