@@ -25,7 +25,7 @@ def pick_device(requested: str = "auto") -> str:
 
 
 class YoloTracker:
-    """Runs detection and ByteTrack one frame at a time, so shots can reset the tracker."""
+    """Runs detection and ByteTrack one frame at a time."""
 
     def __init__(self, weights: str, device: str, imgsz: int) -> None:
         from ultralytics import YOLO
@@ -36,12 +36,6 @@ class YoloTracker:
         names: dict[int, str] = self.model.names
         self.class_ids = [index for index, name in names.items() if name in CLASS_PRIORS]
         self.names = names
-
-    def reset(self) -> None:
-        """Forget all tracks. Called at a hard cut."""
-        predictor = self.model.predictor
-        for tracker in getattr(predictor, "trackers", []) if predictor else []:
-            tracker.reset()
 
     def step(self, frame_index: int, frame: np.ndarray) -> list[Detection]:
         results = self.model.track(

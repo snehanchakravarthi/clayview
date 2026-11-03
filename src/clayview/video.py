@@ -86,9 +86,6 @@ class BackgroundFlow:
             "criteria": (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.03),
         }
 
-    def reset(self) -> None:
-        self._previous = None
-
     def step(self, frame: np.ndarray, previous_boxes: Sequence[Box]) -> FlowPair:
         """Match the last frame to this one. previous_boxes are the last frame's detections."""
         gray = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), self._size, cv2.INTER_AREA)
