@@ -26,6 +26,8 @@ uv run pytest
 uv run ruff check && uv run ruff format --check
 uv run python tools/eval/eval.py fetch    # clips from many cameras, into clips/eval/
 uv run python tools/eval/eval.py run      # process and score them; `score` rescores
+uv run python tools/eval/eval.py pull     # clips and caches from the eval-data release; use this in the cloud
+uv run python tools/eval/eval.py pack     # on a machine that has run everything: tars for that release
 
 cd viewer
 bun install
@@ -36,6 +38,8 @@ bun run build      # typecheck, then dist/
 ```
 
 Detections, car views and street labels are cached in `out/<clip>.raw.npz`, `.views.npz` and `.seg.npz`, so changing a camera flag takes seconds. `--fresh` redoes them; changing detection or model code needs it.
+
+Caches are keyed on the video's bytes, so they travel with the clip. Cloud sessions should `pull` rather than `fetch`: Wikimedia rate-limits cloud addresses, and without a GPU the models take about 27 minutes a clip. With pulled caches, the whole eval rescores in minutes. A change to detection or the models invalidates the caches, so run that one where there's a GPU.
 
 ## Layout
 
