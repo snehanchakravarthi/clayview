@@ -1,0 +1,540 @@
+/* clayview landing page. Colours follow viewer/src/styles.css and world/palette.ts. */
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("assets/fonts/geist-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("assets/fonts/geist-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("assets/fonts/geist-mono-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  --paper: #efebe4;
+  --paper-raised: #f8f6f1;
+  --ink: #2f2b26;
+  --ink-soft: #625c52;
+  --rule: rgb(47 43 38 / 12%);
+  --rule-strong: rgb(47 43 38 / 24%);
+  --clay: #c4704a;
+  --clay-deep: #9c5433;
+  --screen: #26231f;
+  --screen-ink: #ece7de;
+  --screen-soft: #a59d90;
+  --on-primary: #f8f6f1;
+  --shadow: 0 1px 2px rgb(47 43 38 / 8%), 0 18px 48px -24px rgb(47 43 38 / 28%);
+  --radius: 14px;
+  --radius-control: 9px;
+  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --gutter: clamp(16px, 4vw, 48px);
+  --max: 1200px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1c1a17;
+    --paper-raised: #25221e;
+    --ink: #ede8df;
+    --ink-soft: #b0a899;
+    --rule: rgb(237 232 223 / 12%);
+    --rule-strong: rgb(237 232 223 / 26%);
+    --clay: #d4835c;
+    --clay-deep: #e3a07e;
+    --screen: #12110f;
+    --on-primary: #1c1a17;
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 18px 48px -24px rgb(0 0 0 / 60%);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 16px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-wrap: break-word;
+}
+
+h1,
+h2,
+h3,
+p,
+ol,
+ul,
+figure,
+pre {
+  margin: 0;
+}
+
+ol,
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-color: var(--rule-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  text-decoration-color: currentColor;
+}
+
+:focus-visible {
+  outline: 2px solid var(--clay);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+code,
+pre {
+  font-family: var(--mono);
+  font-size: 0.875em;
+}
+
+:not(pre) > code {
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+  background: var(--rule);
+  white-space: nowrap;
+}
+
+strong {
+  font-weight: 550;
+}
+
+.wrap {
+  width: 100%;
+  max-width: calc(var(--max) + 2 * var(--gutter));
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.skip {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  background: var(--ink);
+  color: var(--paper);
+  text-decoration: none;
+  translate: 0 -200%;
+}
+
+.skip:focus-visible {
+  translate: 0 0;
+}
+
+/* Masthead */
+
+.masthead-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+}
+
+.wordmark {
+  color: var(--clay-deep);
+  font: 500 14px/1 var(--mono);
+  text-decoration: none;
+}
+
+.nav {
+  display: flex;
+  gap: 4px;
+}
+
+.nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  color: var(--ink-soft);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.nav a:hover {
+  color: var(--ink);
+  background: var(--rule);
+}
+
+@media (max-width: 639px) {
+  .nav-section {
+    display: none;
+  }
+
+  .nav a {
+    margin-right: -10px;
+  }
+}
+
+/* Hero */
+
+.hero {
+  padding-top: clamp(40px, 8vw, 96px);
+}
+
+.hero-text {
+  max-width: 720px;
+}
+
+h1 {
+  font-size: clamp(34px, 5.4vw, 58px);
+  font-weight: 500;
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.lead {
+  margin-top: 20px;
+  max-width: 62ch;
+  color: var(--ink-soft);
+  font-size: clamp(16px, 1.6vw, 18px);
+  text-wrap: pretty;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 32px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.button:hover {
+  border-color: var(--ink-soft);
+  background: var(--paper-raised);
+}
+
+.button-primary {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--on-primary);
+}
+
+.button-primary:hover {
+  border-color: var(--clay-deep);
+  background: var(--clay-deep);
+  color: var(--on-primary);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .button,
+  .nav a {
+    transition:
+      background-color 120ms,
+      border-color 120ms,
+      color 120ms,
+      scale 120ms;
+  }
+
+  .button:active {
+    scale: 0.98;
+  }
+}
+
+.meta {
+  margin-top: 20px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+/* Screenshots */
+
+.shot img {
+  width: 100%;
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+  box-shadow:
+    0 0 0 1px var(--rule),
+    var(--shadow);
+}
+
+.shot-hero {
+  margin-top: clamp(40px, 6vw, 72px);
+}
+
+.shot figcaption {
+  margin-top: 14px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+/* Sections */
+
+.section {
+  padding-block: clamp(72px, 10vw, 128px) 0;
+}
+
+.section-head {
+  max-width: 720px;
+  margin-bottom: clamp(32px, 5vw, 56px);
+}
+
+h2 {
+  font-size: clamp(26px, 3.2vw, 36px);
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+
+h3 {
+  font-size: 17px;
+  font-weight: 550;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+/* What you get */
+
+.features {
+  display: grid;
+  gap: 56px 32px;
+}
+
+@media (min-width: 760px) {
+  .features {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.feature h3 {
+  margin-top: 20px;
+}
+
+.feature p {
+  margin-top: 6px;
+  max-width: 52ch;
+  color: var(--ink-soft);
+}
+
+/* Numbered rows: how it works, and setup */
+
+.rows {
+  border-bottom: 1px solid var(--rule);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px 12px;
+  padding-block: 24px;
+  border-top: 1px solid var(--rule);
+}
+
+.row > :not(.row-num) {
+  grid-column: 2;
+}
+
+.row-num {
+  grid-row: 1;
+  padding-top: 3px;
+  color: var(--ink-soft);
+  font: 400 13px/1.6 var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.row p {
+  max-width: 62ch;
+  color: var(--ink-soft);
+}
+
+.row-text p {
+  margin-top: 6px;
+}
+
+/* On narrow screens code spans the full row, under the number too. */
+.rows .row > pre {
+  grid-column: 1 / -1;
+  margin-top: 12px;
+}
+
+@media (min-width: 900px) {
+  .row {
+    grid-template-columns: 64px minmax(0, 4fr) minmax(0, 7fr);
+    gap: 24px;
+    padding-block: 28px;
+  }
+
+  .row > :not(.row-num) {
+    grid-column: auto;
+  }
+
+  .rows .row > pre {
+    grid-column: auto;
+    margin-top: 0;
+  }
+}
+
+/* Code blocks share the viewer's dark video "screen" colour in both themes. */
+pre {
+  overflow-x: auto;
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: var(--screen);
+  color: var(--screen-ink);
+  font-size: 13.5px;
+  line-height: 1.7;
+  tab-size: 2;
+}
+
+pre code {
+  font-size: inherit;
+}
+
+.note {
+  margin-top: 24px;
+  max-width: 72ch;
+  color: var(--ink-soft);
+  font-size: 15px;
+}
+
+.note pre {
+  margin-top: 12px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* Limits */
+
+.limits {
+  display: grid;
+  gap: 0 32px;
+}
+
+.limits li {
+  padding-block: 24px;
+  border-top: 1px solid var(--rule);
+}
+
+.limits p {
+  margin-top: 6px;
+  max-width: 52ch;
+  color: var(--ink-soft);
+}
+
+@media (min-width: 760px) {
+  .limits {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Footer */
+
+.footer {
+  margin-top: clamp(96px, 12vw, 160px);
+  padding-block: 40px 56px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.footer-inner {
+  display: grid;
+  gap: 32px;
+}
+
+@media (min-width: 900px) {
+  .footer-inner {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 4fr);
+    gap: 64px;
+  }
+}
+
+.footer h2 {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 550;
+  letter-spacing: 0;
+}
+
+.credits p,
+.credits ul {
+  margin-top: 8px;
+}
+
+.credits li + li {
+  margin-top: 6px;
+}
+
+.colophon p + p {
+  margin-top: 6px;
+}
+
+.colophon p:first-child a {
+  color: var(--ink);
+  font-weight: 500;
+}
