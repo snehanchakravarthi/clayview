@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>clayview</title>
+    <meta
+      name="description"
+      content="clayview plays a recorded dashcam clip beside a matte clay 3D model of the same scene: the traffic around you on a street rebuilt from the footage. Runs locally."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#efebe4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1c1a17" media="(prefers-color-scheme: dark)" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23c4704a'/%3E%3C/svg%3E"
+    />
+    <link rel="preload" href="assets/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="masthead">
+      <div class="wrap masthead-inner">
+        <a class="wordmark" href="#top" aria-label="clayview, back to top">clayview</a>
+        <nav aria-label="Sections">
+          <ul class="nav">
+            <li class="nav-section"><a href="#how">How it works</a></li>
+            <li class="nav-section"><a href="#limits">Limits</a></li>
+            <li class="nav-section"><a href="#run">Run it</a></li>
+            <li><a href="https://github.com/snehanchakravarthi/clayview">GitHub</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="wrap">
+          <div class="hero-text">
+            <h1 id="hero-title">Dashcam footage, replayed as a clay model of the street.</h1>
+            <p class="lead">
+              Give it a recorded clip and it plays the video beside a matte 3D scene of the same drive: every car,
+              truck, bus, bike and person placed on the road around you, on a street rebuilt from the footage.
+            </p>
+            <div class="actions">
+              <a class="button button-primary" href="https://github.com/snehanchakravarthi/clayview">View on GitHub</a>
+              <a class="button" href="#run">Run it locally</a>
+            </div>
+            <p class="meta">Python and Three.js. Runs on your own machine. A personal toy, not a driver aid.</p>
+          </div>
+
+          <figure class="shot shot-hero">
+            <img
+              src="assets/hero-city-2000.jpg"
+              srcset="assets/hero-city-1200.jpg 1200w, assets/hero-city-2000.jpg 2000w"
+              sizes="(min-width: 1296px) 1200px, calc(100vw - 32px)"
+              width="2000"
+              height="1250"
+              fetchpriority="high"
+              alt="The clayview viewer. On the left, a dashcam frame of a city street in Kranj with a crosswalk and a few cars ahead. On the right, the same street as a matte clay model: pale cars in their lanes, buildings, street lights and the crosswalk, with the camera car in terracotta."
+            />
+            <figcaption>Kranj, Slovenia. The clip on the left, the clay scene on the right. Your car is the terracotta one.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section" id="features" aria-labelledby="features-title">
+        <div class="wrap">
+          <div class="section-head">
+            <h2 id="features-title">What you get</h2>
+            <p class="lead">The clip and the clay scene play in step. Scrub anywhere, step a frame at a time or slow it down.</p>
+          </div>
+
+          <div class="features">
+            <article class="feature">
+              <figure class="shot">
+                <img
+                  src="assets/aerial-1400.jpg"
+                  srcset="assets/aerial-800.jpg 800w, assets/aerial-1400.jpg 1400w"
+                  sizes="(min-width: 1296px) 584px, (min-width: 760px) calc(50vw - 64px), calc(100vw - 32px)"
+                  width="1400"
+                  height="875"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Aerial view of the clay scene: a curving road seen from above at an angle, lined with clay trees and a building, with the terracotta car in its lane. The dashcam frame sits to the left."
+                />
+              </figure>
+              <h3>Chase, aerial and top views</h3>
+              <p>Chase follows your car, aerial looks down at an angle and top is a plan view. Press 1, 2 or 3, or drag to orbit.</p>
+            </article>
+
+            <article class="feature">
+              <figure class="shot">
+                <img
+                  src="assets/top-1400.jpg"
+                  srcset="assets/top-800.jpg 800w, assets/top-1400.jpg 1400w"
+                  sizes="(min-width: 1296px) 584px, (min-width: 760px) calc(50vw - 64px), calc(100vw - 32px)"
+                  width="1400"
+                  height="875"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Top-down view of a rebuilt road with lane lines, arrows, trees and a building, with the terracotta car in the right-hand lane. The dashcam frame of the same junction is on the left."
+                />
+              </figure>
+              <h3>The street, rebuilt</h3>
+              <p>Road edges, lane paint, arrows, crosswalks, trees, poles and buildings, read from the footage and laid along the path your car took.</p>
+            </article>
+
+            <article class="feature">
+              <figure class="shot">
+                <img
+                  src="assets/debug-1400.jpg"
+                  srcset="assets/debug-800.jpg 800w, assets/debug-1400.jpg 1400w"
+                  sizes="(min-width: 1296px) 584px, (min-width: 760px) calc(50vw - 64px), calc(100vw - 32px)"
+                  width="1400"
+                  height="875"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Debug view. The dashcam frame shows detection boxes labelled with track numbers and distances, and dashed horizon and hood lines. The clay scene shows distance labels over each car and a panel listing horizon, camera height, field of view and other calibration values."
+                />
+              </figure>
+              <h3>A debug view that shows its working</h3>
+              <p>Press D for boxes and distances on the video, the horizon and hood lines, and the camera calibration it worked out.</p>
+            </article>
+
+            <article class="feature">
+              <figure class="shot">
+                <img
+                  src="assets/night-fog-1400.jpg"
+                  srcset="assets/night-fog-800.jpg 800w, assets/night-fog-1400.jpg 1400w"
+                  sizes="(min-width: 1296px) 584px, (min-width: 760px) calc(50vw - 64px), calc(100vw - 32px)"
+                  width="1400"
+                  height="875"
+                  loading="lazy"
+                  decoding="async"
+                  alt="A night drive through fog in Ljubljana: headlights and street lamps glowing on the dashcam frame, and beside it the same two cars ahead, a crosswalk and street lights as clay."
+                />
+              </figure>
+              <h3>Night and fog</h3>
+              <p>It runs on night footage too. Speed is read from road texture, so it gets less reliable when the road is hard to see.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="how" aria-labelledby="how-title">
+        <div class="wrap">
+          <div class="section-head">
+            <h2 id="how-title">How it works</h2>
+            <p class="lead">
+              A Python pipeline turns a clip into one scene file, and a static viewer plays that file beside the video.
+              Nothing is uploaded anywhere.
+            </p>
+          </div>
+
+          <ol class="rows">
+            <li class="row">
+              <span class="row-num" aria-hidden="true">01</span>
+              <h3>Detect and track</h3>
+              <p>YOLO finds cars, trucks, buses, motorcycles, bicycles and people in each frame. ByteTrack links them over time and a smoother cleans up each track.</p>
+            </li>
+            <li class="row">
+              <span class="row-num" aria-hidden="true">02</span>
+              <h3>Calibrate from the footage</h3>
+              <p>With no camera specs to go on, it finds the horizon from how the road flows, the camera height from the widths of cars ahead, and where the hood starts. Each shot gets its own calibration, so compilations work too.</p>
+            </li>
+            <li class="row">
+              <span class="row-num" aria-hidden="true">03</span>
+              <h3>Estimate your own motion</h3>
+              <p>Speed and turning come from the road texture moving past, so other traffic can be placed on the road rather than relative to a moving camera.</p>
+            </li>
+            <li class="row">
+              <span class="row-num" aria-hidden="true">04</span>
+              <h3>Rebuild the street</h3>
+              <p>A street segmentation model labels road, paint, curbs, trees, poles and buildings. They are projected onto a flat road and joined along your path.</p>
+            </li>
+            <li class="row">
+              <span class="row-num" aria-hidden="true">05</span>
+              <h3>Replay it</h3>
+              <p>Everything lands in a JSON scene file. The Three.js viewer plays it beside the video, from plain static files with no backend.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section" id="limits" aria-labelledby="limits-title">
+        <div class="wrap">
+          <div class="section-head">
+            <h2 id="limits-title">Limits</h2>
+            <p class="lead">It's a toy, and it is guessing a lot from one camera. Worth knowing before you read too much into it.</p>
+          </div>
+
+          <ul class="limits">
+            <li>
+              <h3>Not a driver aid</h3>
+              <p>Nothing here drives, warns or should be trusted for anything safety-related.</p>
+            </li>
+            <li>
+              <h3>Distances have an unknown scale</h3>
+              <p>On a clip from a camera you don't know, the field of view is a guess. The layout holds up; absolute metres can be off by 20% or more.</p>
+            </li>
+            <li>
+              <h3>Speed is unreliable on fast roads and wide lenses</h3>
+              <p>Speed is read from the road moving past. At motorway speed it currently collapses to near zero, and wide dashcam lenses read it low. City driving works best.</p>
+            </li>
+            <li>
+              <h3>One forward camera</h3>
+              <p>Nothing is known behind or beside you. Cars that pass you coast briefly and fade, and the street is an estimate, not a survey.</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="run" aria-labelledby="run-title">
+        <div class="wrap">
+          <div class="section-head">
+            <h2 id="run-title">Run it locally</h2>
+            <p class="lead">
+              You need <a href="https://docs.astral.sh/uv/">uv</a>, <a href="https://bun.sh">bun</a> and
+              <a href="https://ffmpeg.org">ffmpeg</a>. The first run downloads about 1&nbsp;GB of models into
+              <code>models/</code>.
+            </p>
+          </div>
+
+          <ol class="rows">
+            <li class="row">
+              <span class="row-num" aria-hidden="true">01</span>
+              <div class="row-text">
+                <h3>Install the pipeline</h3>
+                <p>With <a href="https://mise.jdx.dev">mise</a>, <code>mise trust &amp;&amp; mise install</code> gets the pinned versions.</p>
+              </div>
+              <pre tabindex="0" aria-label="Install commands"><code>git clone https://github.com/snehanchakravarthi/clayview
+cd clayview
+uv sync</code></pre>
+            </li>
+            <li class="row">
+              <span class="row-num" aria-hidden="true">02</span>
+              <div class="row-text">
+                <h3>Process a clip</h3>
+                <p>Put a clip in <code>clips/</code>. H.264 MP4 is the safe choice. This writes <code>out/drive.scene.json</code>.</p>
+              </div>
+              <pre tabindex="0" aria-label="Process command"><code>uv run clayview process clips/drive.mp4</code></pre>
+            </li>
+            <li class="row">
+              <span class="row-num" aria-hidden="true">03</span>
+              <div class="row-text">
+                <h3>Open the viewer</h3>
+                <p>Go to <code>localhost:5199</code> and press <strong>Open latest</strong>.</p>
+              </div>
+              <pre tabindex="0" aria-label="Viewer commands"><code>cd viewer
+bun install
+bun run dev</code></pre>
+            </li>
+          </ol>
+
+          <div class="note">
+            <p>Got an <code>.ogv</code> or something else your browser can't play? Convert it first:</p>
+            <pre tabindex="0" aria-label="Conversion command"><code>ffmpeg -i clip.ogv -c:v libx264 -crf 23 -an clip.mp4</code></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-inner">
+        <div class="credits">
+          <h2>Footage</h2>
+          <p>The screenshots show clips from Wikimedia Commons, scaled down, beside clayview's output.</p>
+          <ul>
+            <li>
+              Kranj and Ljubljana:
+              <a href="https://commons.wikimedia.org/wiki/File:On_the_Road-_Driving_through_Kranj.webm">On the Road: Driving through Kranj</a>
+              and
+              <a href="https://commons.wikimedia.org/wiki/File:On_the_Road-_Foggy_Ljubljana.webm">On the Road: Foggy Ljubljana</a>
+              by Renato Lozinšek,
+              <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>.
+            </li>
+            <li>
+              Aerial, top and debug views:
+              <a href="https://commons.wikimedia.org/wiki/File:Dashcam_recording_example_-_Panorama_II_BlackBox_Dashcam_daylight.mp4.ogv">Dashcam recording example, Panorama II BlackBox Dashcam daylight</a>,
+              <a href="https://creativecommons.org/publicdomain/zero/1.0/">CC0</a>.
+            </li>
+          </ul>
+        </div>
+        <div class="colophon">
+          <p><a href="https://github.com/snehanchakravarthi/clayview">clayview on GitHub</a></p>
+          <p>The code's licence is listed in the repository.</p>
+          <p>Set in Geist, under the <a href="assets/fonts/OFL.txt">SIL Open Font License</a>.</p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
