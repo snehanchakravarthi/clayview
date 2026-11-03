@@ -63,6 +63,18 @@ def test_roadside_flow_is_not_a_turn() -> None:
     assert yaw_step(turning, CAMERA) == pytest.approx(6.0 / CAMERA.focal_px, rel=0.02)
 
 
+def test_series_is_the_same_in_seconds_at_any_frame_rate() -> None:
+    """Smoothing windows were in frames, so a 60 fps clip got half the smoothing of a 30 fps one."""
+    results = []
+    for fps in (30.0, 60.0):
+        count = int(2 * fps)
+        pairs = [ground_pair(12.0 / fps, seed) for seed in range(count)]
+        times = [index / fps for index in range(count + 1)]
+        steps, _ = estimate_ego_series(pairs, times, CAMERA)
+        results.append(np.array([step.forward_m * fps for step in steps]))
+    assert np.median(results[0]) == pytest.approx(np.median(results[1]), rel=0.03)
+
+
 def test_series_fills_gaps_and_stays_smooth() -> None:
     pairs = [ground_pair(0.4, seed) for seed in range(40)]
     pairs[20] = FlowPair(np.empty((0, 2), np.float32), np.empty((0, 2), np.float32))

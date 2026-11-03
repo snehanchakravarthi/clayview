@@ -17,11 +17,12 @@ class EgoConfig:
     max_ground_range_m: float = 22.0
     max_ground_lateral_m: float = 9.0
     min_points: int = 8
-    pool_frames: int = 4  # road points are pooled over this many frames each side
+    # Windows are in seconds, so a 60 fps clip isn't smoothed half as much as a 30 fps one.
+    pool_s: float = 0.13  # road points are pooled over this long each side
     static_speed_mps: float = 0.8  # below this, a cluster of points is not moving
     min_road_share: float = 0.2  # the moving cluster must be at least this much of the sample
-    median_window: int = 7
-    smooth_alpha: float = 0.35
+    median_half_s: float = 0.1
+    smooth_s: float = 0.077  # time constant of the low-pass
     max_speed_mps: float = 55.0
 
 
@@ -146,21 +147,23 @@ def estimate_ego_series(
         for index in range(count)
     ]
     point_speeds = [road_speeds(pair, camera, dts[i], cfg) for i, pair in enumerate(pairs)]
+    frame_dt = float(np.median([dt for dt in dts if dt > 0])) if count > 1 else 1.0 / 30.0
+    pool = round(cfg.pool_s / frame_dt)
     yaw = np.full(count, np.nan)
     speed = np.full(count, np.nan)
     for index, pair in enumerate(pairs):
         measured_yaw = yaw_step(pair, camera, cfg)
         if measured_yaw is not None:
             yaw[index] = measured_yaw
-        start = max(index - cfg.pool_frames, 0)
-        pooled = np.concatenate(point_speeds[start : index + cfg.pool_frames + 1])
+        start = max(index - pool, 0)
+        pooled = np.concatenate(point_speeds[start : index + pool + 1])
         measured = speed_from_points(pooled, cfg)
         if measured is not None and -2.0 <= measured <= cfg.max_speed_mps:
             speed[index] = max(measured, 0.0)
 
     coverage = float(np.isfinite(speed).mean()) if count else 0.0
-    smooth_speed = _smooth_series(speed, cfg)
-    smooth_yaw = _smooth_series(yaw, cfg)
+    smooth_speed = _smooth_series(speed, frame_dt, cfg)
+    smooth_yaw = _smooth_series(yaw, frame_dt, cfg)
     steps = [
         EgoStep(forward_m=float(smooth_speed[i]) * dts[i], yaw_rad=float(smooth_yaw[i]))
         for i in range(count)
@@ -168,7 +171,7 @@ def estimate_ego_series(
     return steps, coverage
 
 
-def _smooth_series(values: np.ndarray, cfg: EgoConfig) -> np.ndarray:
+def _smooth_series(values: np.ndarray, frame_dt: float, cfg: EgoConfig) -> np.ndarray:
     """Fill gaps, median filter, then a forward-backward low-pass."""
     if len(values) == 0:
         return values
@@ -178,13 +181,14 @@ def _smooth_series(values: np.ndarray, cfg: EgoConfig) -> np.ndarray:
     positions = np.arange(len(values))
     filled = np.interp(positions, positions[known], values[known])
 
-    half = cfg.median_window // 2
+    half = round(cfg.median_half_s / frame_dt)
     padded = np.pad(filled, half, mode="edge")
-    windows = np.lib.stride_tricks.sliding_window_view(padded, cfg.median_window)
+    windows = np.lib.stride_tricks.sliding_window_view(padded, 2 * half + 1)
     median = np.median(windows, axis=1)
 
-    forward = _low_pass(median, cfg.smooth_alpha)
-    return _low_pass(forward[::-1], cfg.smooth_alpha)[::-1]
+    alpha = 1.0 - float(np.exp(-frame_dt / cfg.smooth_s))
+    forward = _low_pass(median, alpha)
+    return _low_pass(forward[::-1], alpha)[::-1]
 
 
 def _low_pass(values: np.ndarray, alpha: float) -> np.ndarray:

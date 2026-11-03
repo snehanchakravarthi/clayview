@@ -1,5 +1,7 @@
 from clayview.core.types import Box, Detection
-from clayview.orient import SAMPLE_EVERY, crop_bounds, wanted_detections
+from clayview.orient import crop_bounds, sample_every, wanted_detections
+
+EVERY = 5
 
 
 def detection(frame: int, name: str = "car", height: float = 60.0) -> Detection:
@@ -16,9 +18,16 @@ def test_only_sampled_cars_big_enough_to_read_are_wanted() -> None:
         [
             detection(0),
             detection(1),
-            detection(SAMPLE_EVERY, "truck"),
-            detection(2 * SAMPLE_EVERY, height=10.0),
-            detection(3 * SAMPLE_EVERY),
-        ]
+            detection(EVERY, "truck"),
+            detection(2 * EVERY, height=10.0),
+            detection(3 * EVERY),
+        ],
+        EVERY,
     )
-    assert sorted(picked) == [0, 3 * SAMPLE_EVERY]
+    assert sorted(picked) == [0, 3 * EVERY]
+
+
+def test_views_are_sampled_in_time_not_frames() -> None:
+    assert sample_every(30.0) == 5
+    assert sample_every(60.0) == 10
+    assert sample_every(2.0) == 1

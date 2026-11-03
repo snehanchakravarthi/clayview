@@ -40,7 +40,7 @@ def extract(
     info = probe(video_path)
     device = pick_device(options.device)
     weights = _resolve_weights(options.weights)
-    tracker = YoloTracker(weights, device, options.imgsz)
+    tracker = YoloTracker(weights, device, options.imgsz, info.fps / options.stride)
     cut_detector = CutDetector(info.fps / options.stride)
     flow = BackgroundFlow(info.width, info.height)
 
