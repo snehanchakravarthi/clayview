@@ -220,8 +220,12 @@ def save_raw(path: Path, raw: RawClip, key: str) -> None:
         )
 
 
-def load_raw(path: Path, key: str) -> RawClip | None:
-    """Load cached detections, or None if they came from a different run."""
+def load_raw(path: Path, key: str, video_path: Path) -> RawClip | None:
+    """Load cached detections, or None if they came from a different run.
+
+    The key is the video's content, so the cache may have been made from another path or machine.
+    The clip records where the video is now, not where it was.
+    """
     if not path.exists():
         return None
     with np.load(path) as data:
@@ -247,7 +251,7 @@ def load_raw(path: Path, key: str) -> RawClip | None:
             for start, end in itertools.pairwise(offsets)
         ]
         return RawClip(
-            video=VideoInfo(**header["video"]),
+            video=VideoInfo(**{**header["video"], "path": str(video_path)}),
             times=data["times"].tolist(),
             cuts=data["cuts"].tolist(),
             detections=detections,

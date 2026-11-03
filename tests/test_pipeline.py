@@ -1,7 +1,15 @@
 import os
 from pathlib import Path
 
-from clayview.pipeline import DetectionOptions, cache_key, load_views, save_views
+from clayview.core.scene import RawClip, VideoInfo
+from clayview.pipeline import (
+    DetectionOptions,
+    cache_key,
+    load_raw,
+    load_views,
+    save_raw,
+    save_views,
+)
 
 
 def test_views_round_trip(tmp_path: Path) -> None:
@@ -31,3 +39,18 @@ def test_cache_key_follows_content_not_location(tmp_path: Path) -> None:
     there.write_bytes(b"other frame")  # same size, different content
     assert cache_key(here, options) != cache_key(there, options)
     assert cache_key(here, options) != cache_key(here, DetectionOptions(stride=2))
+
+
+def test_reused_detections_point_at_the_video_as_it_is_now(tmp_path: Path) -> None:
+    """A cache made on another machine kept its path, and the scene file pointed there."""
+    old = VideoInfo("/Users/someone/clips/clip.mp4", 1280, 720, 30.0, 1.0, 30)
+    raw = RawClip(video=old, times=[0.0], cuts=[], detections=[], flow=[], model={})
+    path = tmp_path / "clip.raw.npz"
+    save_raw(path, raw, "key")
+
+    here = tmp_path / "clips" / "clip.mov"
+    loaded = load_raw(path, "key", here)
+    assert loaded is not None
+    assert loaded.video.path == str(here)
+    assert loaded.video.width == old.width
+    assert load_raw(path, "other key", here) is None

@@ -150,7 +150,7 @@ def _process(args: argparse.Namespace) -> int:
 
     raw_path = output.with_name(output.name.removesuffix(".scene.json") + ".raw.npz")
     key = cache_key(video, options)
-    raw = None if args.fresh else load_raw(raw_path, key)
+    raw = None if args.fresh else load_raw(raw_path, key, video)
     if raw is None:
         raw = extract(video, options)
         save_raw(raw_path, raw, key)
