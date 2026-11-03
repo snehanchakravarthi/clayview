@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[2]
 CLIPS = REPO / "clips/eval"
 OUT = REPO / "out/eval"
 MANIFEST = Path(__file__).with_name("clips.json")
-USER_AGENT = "clayview-eval/0.1 (personal non-commercial research)"
+USER_AGENT = "clayview-eval/0.1 (https://github.com/snehanchakravarthi/clayview)"
 COMMA = "https://raw.githubusercontent.com/commaai/comma2k19/master/Example_1/b0c9d2329ad1606b%7C2018-08-02--08-34-47/40/"
 COMMA_FILES = [
     "video.hevc",
