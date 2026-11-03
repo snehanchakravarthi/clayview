@@ -222,8 +222,13 @@ def credits(names: list[str], clips: dict[str, dict[str, Any]]) -> str:
 
 
 def pull(name: str, source: str) -> bool:
-    """Fetch one clip and its caches from the release. False if the release doesn't have it."""
-    if (CLIPS / name / "clip.mp4").exists():
+    """Fetch one clip and its caches from the release. False if the release doesn't have it.
+
+    A clip from `fetch` is re-encoded here, so its bytes, and its cache key, differ from the
+    release's. Without all its caches it is replaced by the release's copy.
+    """
+    have = [CLIPS / name / "clip.mp4", *(OUT / f"{name}.{kind}.npz" for kind in CACHES)]
+    if all(path.exists() for path in have):
         print(f"{name}: have it")
         return True
     download = CLIPS / "_download" / f"{name}.tar"
