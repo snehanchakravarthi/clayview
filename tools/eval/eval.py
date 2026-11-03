@@ -188,7 +188,9 @@ def pack(names: list[str], clips: dict[str, dict[str, Any]]) -> int:
         size = (RELEASE / f"{name}.tar").stat().st_size / 1e6
         print(f"{name}: {size:.0f} MB, caches: {', '.join(caches) or 'none'}")
         packed.append(name)
-    (RELEASE / "CREDITS.md").write_text(credits(packed, clips))
+    # Credit every tar the publish command will upload, including ones from earlier packs.
+    published = sorted(path.stem for path in RELEASE.glob("*.tar") if path.stem in clips)
+    (RELEASE / "CREDITS.md").write_text(credits(published, clips))
     folder = RELEASE.relative_to(REPO)
     print(
         f"\nwrote {len(packed)} tars and CREDITS.md to {folder}/. From the repo root, publish with"
@@ -225,10 +227,10 @@ def pull(name: str, source: str) -> bool:
     """Fetch one clip and its caches from the release. False if the release doesn't have it.
 
     A clip from `fetch` is re-encoded here, so its bytes, and its cache key, differ from the
-    release's. Without all its caches it is replaced by the release's copy.
+    release's. Unless all its caches are present and match it, it is replaced by the release's copy.
     """
     have = [CLIPS / name / "clip.mp4", *(OUT / f"{name}.{kind}.npz" for kind in CACHES)]
-    if all(path.exists() for path in have):
+    if all(path.exists() for path in have) and _caches_current(name):
         print(f"{name}: have it")
         return True
     download = CLIPS / "_download" / f"{name}.tar"
@@ -247,6 +249,22 @@ def pull(name: str, source: str) -> bool:
         download.unlink()
     print(f"{name}: pulled")
     return True
+
+
+def _caches_current(name: str) -> bool:
+    """Whether the detection cache matches this clip and the options `run` uses.
+
+    The car-view and street caches embed this key, so a stale cache version, other video bytes or
+    other options show up here.
+    """
+    from clayview.pipeline import DetectionOptions, cache_key
+
+    try:
+        with np.load(OUT / f"{name}.raw.npz") as data:
+            stored = json.loads(str(data["header"]))["key"]
+    except (OSError, ValueError, KeyError):
+        return False
+    return stored == cache_key(CLIPS / name / "clip.mp4", DetectionOptions())
 
 
 def _belongs_to(name: str, entry: str) -> bool:
