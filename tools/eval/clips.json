@@ -204,5 +204,136 @@
   "start_s": 60,
   "duration_s": 60,
   "note": "picture in picture, black border"
+ },
+ "md_i270": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/d/db/Driving_southbound_on_I-270_from_Shady_Grove_Road_to_the_I-270_Spur_%281_June_2026%29.webm",
+  "page": "https://commons.wikimedia.org/wiki/File:Driving_southbound_on_I-270_from_Shady_Grove_Road_to_the_I-270_Spur_(1_June_2026).webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Illegitimate Barrister",
+  "start_s": 60,
+  "duration_s": 60,
+  "note": "US, Maryland I-270, dense highway traffic, 14.2 fps; lane dashes say ~115 km/h, pipeline reads ~16",
+  "demo": false
+ },
+ "krakow_city": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/9/98/City_Driving_4K-_Krak%C3%B3w_Poland_2024.webm",
+  "page": "https://commons.wikimedia.org/wiki/File:City_Driving_4K-_Krak%C3%B3w_Poland_2024.webm",
+  "licence": "CC BY 3.0",
+  "author": "Relaxing Roads 4K",
+  "start_s": 2080,
+  "duration_s": 60,
+  "note": "Poland, tree-lined boulevard with tram tracks, lane paint, red hood",
+  "fetch": "720p",
+  "demo": true
+ },
+ "bangalore_iisc": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/5/5d/IISc_drive_20230128_080205.webm",
+  "page": "https://commons.wikimedia.org/wiki/File:IISc_drive_20230128_080205.webm",
+  "licence": "CC0",
+  "author": "L. Shyamal",
+  "start_s": 15,
+  "duration_s": 60,
+  "note": "India, Bengaluru IISc campus, tree tunnel, dash and wipers in frame",
+  "demo": true
+ },
+ "hahndorf_town": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/b/b9/Hahndorf_drive_-_Gn_241124.webm",
+  "page": "https://commons.wikimedia.org/wiki/File:Hahndorf_drive_-_Gn_241124.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Gnangarra, edit by Quinn",
+  "start_s": 40,
+  "duration_s": 60,
+  "note": "Australia, leafy main street, parked cars, dash in frame",
+  "demo": true
+ },
+ "plitvice_highway": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/6/62/Dashcam_-_Plitvice_Lakes%2C_Croatia_to_just_south_of_Ljubljana%2C_Slovenia_-_06_June_2015.webm",
+  "page": "https://commons.wikimedia.org/wiki/File:Dashcam_-_Plitvice_Lakes,_Croatia_to_just_south_of_Ljubljana,_Slovenia_-_06_June_2015.webm",
+  "licence": "CC BY 3.0",
+  "author": "smaug4242",
+  "start_s": 1920,
+  "duration_s": 60,
+  "note": "Croatia, A3 motorway, trucks, burned-in speed (truth)",
+  "fetch": "720p",
+  "demo": false,
+  "expect": {
+   "moving": true,
+   "cuts": 0,
+   "speed_kmh": [
+    [
+     2,
+     130
+    ],
+    [
+     6,
+     126
+    ],
+    [
+     10,
+     126
+    ],
+    [
+     14,
+     131
+    ],
+    [
+     18,
+     129
+    ],
+    [
+     22,
+     131
+    ],
+    [
+     26,
+     122
+    ],
+    [
+     30,
+     119
+    ],
+    [
+     34,
+     113
+    ],
+    [
+     42,
+     112
+    ],
+    [
+     46,
+     106
+    ],
+    [
+     50,
+     108
+    ],
+    [
+     54,
+     119
+    ]
+   ]
+  }
+ },
+ "sf_bay_bridge": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/4/43/Nairb%27s_Dash_Cam-_2015-12-05_Over_the_bay_bridge_and_back.webm",
+  "page": "https://commons.wikimedia.org/wiki/File:Nairb%27s_Dash_Cam-_2015-12-05_Over_the_bay_bridge_and_back.webm",
+  "licence": "CC BY 3.0",
+  "author": "Brian Marsh",
+  "start_s": 590,
+  "duration_s": 60,
+  "note": "US, San Francisco Bay Bridge westbound, highway traffic, timestamp overlay",
+  "fetch": "720p",
+  "demo": true
+ },
+ "park_ridge_suburb": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/3/3e/DashCam_Driving_Through_Park_Ridge_%26_Niles%2C_Illinois.webm/DashCam_Driving_Through_Park_Ridge_%26_Niles%2C_Illinois.webm.1080p.vp9.webm",
+  "page": "https://commons.wikimedia.org/wiki/File:DashCam_Driving_Through_Park_Ridge_%26_Niles%2C_Illinois.webm",
+  "licence": "CC BY 3.0",
+  "author": "SportsMusicCars",
+  "start_s": 540,
+  "duration_s": 60,
+  "note": "US, Illinois suburban arterial, wide lanes, hood reflections, timestamp overlay; url is the 1080p transcode",
+  "demo": true
  }
 }
