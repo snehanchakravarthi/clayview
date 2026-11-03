@@ -80,8 +80,9 @@ def main() -> int:
                 "-o",
                 str(scene_path),
             ]
-            if name == "comma2k19":
-                command += ["--vfov", "51.3"]  # its focal length is published, so test the rest
+            if "vfov" in clips[name]:
+                # Known or measured focal length, so the run tests the rest. Nothing estimates it.
+                command += ["--vfov", str(clips[name]["vfov"])]
             run = subprocess.run(
                 command + (["--fresh"] if args.fresh else []),
                 cwd=REPO,
@@ -181,6 +182,7 @@ def score(name: str, entry: dict[str, Any], scene: dict[str, Any]) -> dict[str, 
         failures.append(f"moving only {result['moving_share']:.0%}")
     if "speed_kmh" in expect:
         truth = np.array(expect["speed_kmh"], dtype=float)
+        truth[:, 1] *= entry.get("time_scale", 1.0)  # a timelapse overlay shows real-world speed
         estimates = np.array([speed[np.abs(times - t) <= 0.5].mean() for t in truth[:, 0]])
         ratio = float(np.median(estimates / truth[:, 1]))
         result["speed_ratio"] = round(ratio, 3)
