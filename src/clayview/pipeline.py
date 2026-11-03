@@ -110,7 +110,9 @@ def extract(
 
 def save_views(path: Path, views: Mapping[tuple[int, int], Sequence[float]], key: str) -> None:
     keys = np.array(list(views), dtype=np.int32).reshape(-1, 2)
-    values = np.array(list(views.values()), dtype=np.float32).reshape(len(keys), -1)
+    # A clip with no usable car crops has no views; reshape(0, -1) can't infer that width.
+    width = len(next(iter(views.values()))) if views else 0
+    values = np.array(list(views.values()), dtype=np.float32).reshape(len(keys), width)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as handle:
         np.savez_compressed(handle, key=np.array(key), keys=keys, values=values)
