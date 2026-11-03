@@ -4,6 +4,13 @@
     uv run python tools/eval/eval.py run              # process every clip and score it
     uv run python tools/eval/eval.py run bled_rollei --fresh
     uv run python tools/eval/eval.py score            # rescore existing scene files
+    uv run python tools/eval/eval.py pack             # clips and caches into out/release/
+    uv run python tools/eval/eval.py pull             # the same, from the GitHub release
+
+Wikimedia rate-limits cloud machines, and the models take half an hour a clip without a GPU. So a
+machine that has run everything packs each clip with its caches, the tars go up as a release, and
+any other machine pulls them and rescores in seconds. The caches are keyed on the video's bytes, so
+they hit wherever the clip lands.
 
 Truth is uneven on purpose. comma2k19 has CAN speed, a gyro and radar. Bled has a speed overlay read
 by eye. Others only say what is certain from looking at the frames: the car is moving, there are no
@@ -16,6 +23,7 @@ import argparse
 import json
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.parse
 from pathlib import Path
@@ -27,6 +35,11 @@ REPO = Path(__file__).resolve().parents[2]
 CLIPS = REPO / "clips/eval"
 OUT = REPO / "out/eval"
 MANIFEST = Path(__file__).with_name("clips.json")
+RELEASE = REPO / "out/release"
+# Bump with CACHE_VERSION in pipeline.py: caches from another version miss and get rebuilt.
+DATA_TAG = "eval-data-v3"
+DATA_URL = f"https://github.com/snehanchakravarthi/clayview/releases/download/{DATA_TAG}"
+CACHES = ("raw", "views", "seg")
 USER_AGENT = "clayview-eval/0.1 (https://github.com/snehanchakravarthi/clayview)"
 COMMA = "https://raw.githubusercontent.com/commaai/comma2k19/master/Example_1/b0c9d2329ad1606b%7C2018-08-02--08-34-47/40/"
 COMMA_FILES = [
@@ -47,9 +60,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("command", choices=["fetch", "run", "score"])
+    parser.add_argument("command", choices=["fetch", "run", "score", "pack", "pull"])
     parser.add_argument("names", nargs="*", help="clips to use; default all")
     parser.add_argument("--fresh", action="store_true", help="redo detection, not just the scene")
+    parser.add_argument("--source", default=DATA_URL, help="where pull finds the tars")
     args = parser.parse_args()
     clips: dict[str, dict[str, Any]] = json.loads(MANIFEST.read_text())
     names = args.names or list(clips)
@@ -61,6 +75,11 @@ def main() -> int:
         for name in names:
             fetch(name, clips[name])
         return 0
+    if args.command == "pack":
+        return pack(names, clips)
+    if args.command == "pull":
+        missing = [name for name in names if not pull(name, args.source)]
+        return 1 if missing else 0
 
     results: dict[str, dict[str, Any]] = {}
     for name in names:
@@ -140,6 +159,122 @@ def fetch(name: str, entry: dict[str, Any]) -> None:
     )
     download.unlink()
     print(f"{name}: fetched")
+
+
+def _members(name: str) -> list[Path]:
+    """Repo-relative files for one clip: the video, any truth files, and whatever caches exist."""
+    folder = CLIPS / name
+    files = [path for path in sorted(folder.rglob("*")) if path.is_file()]
+    # comma2k19's raw HEVC is only the source of clip.mp4, and the caches are keyed on clip.mp4.
+    files = [path for path in files if path.name != "video.hevc"]
+    files += [
+        OUT / f"{name}.{kind}.npz" for kind in CACHES if (OUT / f"{name}.{kind}.npz").exists()
+    ]
+    return [path.relative_to(REPO) for path in files]
+
+
+def pack(names: list[str], clips: dict[str, dict[str, Any]]) -> int:
+    RELEASE.mkdir(parents=True, exist_ok=True)
+    packed = []
+    for name in names:
+        if not (CLIPS / name / "clip.mp4").exists():
+            print(f"{name}: not fetched, skipped")
+            continue
+        members = _members(name)
+        caches = [kind for kind in CACHES if (OUT / f"{name}.{kind}.npz").exists()]
+        with tarfile.open(RELEASE / f"{name}.tar", "w") as tar:
+            for member in members:
+                tar.add(REPO / member, arcname=str(member))
+        size = (RELEASE / f"{name}.tar").stat().st_size / 1e6
+        print(f"{name}: {size:.0f} MB, caches: {', '.join(caches) or 'none'}")
+        packed.append(name)
+    # Credit every tar the publish command will upload, including ones from earlier packs.
+    published = sorted(path.stem for path in RELEASE.glob("*.tar") if path.stem in clips)
+    (RELEASE / "CREDITS.md").write_text(credits(published, clips))
+    folder = RELEASE.relative_to(REPO)
+    print(
+        f"\nwrote {len(packed)} tars and CREDITS.md to {folder}/. From the repo root, publish with"
+        f"\n  gh release create {DATA_TAG} {folder}/* --title {DATA_TAG}"
+        f" --notes-file {folder}/CREDITS.md"
+    )
+    return 0
+
+
+def credits(names: list[str], clips: dict[str, dict[str, Any]]) -> str:
+    """Attribution for the release notes: every clip is redistributed under its own licence."""
+    lines = [
+        f"# clayview eval clips ({DATA_TAG})",
+        "",
+        "Clips for `tools/eval/eval.py pull`, each packed with the pipeline's caches for it.",
+        "Each clip is a trimmed, re-encoded excerpt of the source below, under that source's",
+        "licence and credited to its author. A CC BY-SA excerpt stays CC BY-SA.",
+        "",
+        "| clip | source | author | licence | excerpt |",
+        "|---|---|---|---|---|",
+    ]
+    for name in names:
+        entry = clips[name]
+        source = entry.get("page", entry["url"])
+        if "start_s" in entry:
+            excerpt = f"{entry['start_s']}-{entry['start_s'] + entry['duration_s']} s"
+        else:
+            excerpt = "whole"
+        lines.append(f"| {name} | {source} | {entry['author']} | {entry['licence']} | {excerpt} |")
+    return "\n".join(lines) + "\n"
+
+
+def pull(name: str, source: str) -> bool:
+    """Fetch one clip and its caches from the release. False if the release doesn't have it.
+
+    A clip from `fetch` is re-encoded here, so its bytes, and its cache key, differ from the
+    release's. Unless all its caches are present and match it, it is replaced by the release's copy.
+    """
+    have = [CLIPS / name / "clip.mp4", *(OUT / f"{name}.{kind}.npz" for kind in CACHES)]
+    if all(path.exists() for path in have) and _caches_current(name):
+        print(f"{name}: have it")
+        return True
+    download = CLIPS / "_download" / f"{name}.tar"
+    try:
+        _curl(f"{source}/{name}.tar", download)
+    except subprocess.CalledProcessError:
+        print(f"{name}: not in {source}")
+        return False
+    try:
+        with tarfile.open(download) as tar:
+            for member in tar.getmembers():
+                if not member.isfile() or not _belongs_to(name, member.name):
+                    raise ValueError(f"{download}: unexpected entry {member.name}")
+            tar.extractall(REPO, filter="data")
+    finally:
+        download.unlink()
+    print(f"{name}: pulled")
+    return True
+
+
+def _caches_current(name: str) -> bool:
+    """Whether the detection cache matches this clip and the options `run` uses.
+
+    The car-view and street caches embed this key, so a stale cache version, other video bytes or
+    other options show up here.
+    """
+    from clayview.pipeline import DetectionOptions, cache_key
+
+    try:
+        with np.load(OUT / f"{name}.raw.npz") as data:
+            stored = json.loads(str(data["header"]))["key"]
+    except (OSError, ValueError, KeyError):
+        return False
+    return stored == cache_key(CLIPS / name / "clip.mp4", DetectionOptions())
+
+
+def _belongs_to(name: str, entry: str) -> bool:
+    """Only this clip's folder and its caches. Checked on the resolved path, so ../ can't escape."""
+    target = (REPO / entry).resolve()
+    if target.is_relative_to((CLIPS / name).resolve()):
+        return True
+    return target.parent == OUT.resolve() and target.name in {
+        f"{name}.{kind}.npz" for kind in CACHES
+    }
 
 
 def _curl(url: str, path: Path) -> None:
