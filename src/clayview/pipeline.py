@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import itertools
 import json
 import time
@@ -19,7 +20,7 @@ from clayview.detect import YoloTracker, pick_device
 from clayview.video import BackgroundFlow, cut_thumbnail, probe, read_frames
 from clayview.world import SegMaps
 
-CACHE_VERSION = 2  # 2: wiper-proof cuts
+CACHE_VERSION = 3  # 2: wiper-proof cuts. 3: keyed on video content, not path and mtime
 
 
 @dataclass(frozen=True)
@@ -166,11 +167,17 @@ def _resolve_weights(weights: str) -> str:
 
 
 def cache_key(video_path: Path, options: DetectionOptions) -> str:
-    stat = video_path.stat()
+    """Same video bytes and options, same key, wherever the clip lives.
+
+    Caches made on one machine are reused on another, where the clip has a different path and a
+    fresh mtime. Hashing a 60 s clip takes tens of milliseconds once it's in the page cache.
+    """
+    with video_path.open("rb") as handle:
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
     return json.dumps(
         {
             "version": CACHE_VERSION,
-            "video": [str(video_path), stat.st_size, int(stat.st_mtime)],
+            "video": digest,
             "weights": Path(options.weights).name,
             "imgsz": options.imgsz,
             "stride": options.stride,
@@ -213,8 +220,12 @@ def save_raw(path: Path, raw: RawClip, key: str) -> None:
         )
 
 
-def load_raw(path: Path, key: str) -> RawClip | None:
-    """Load cached detections, or None if they came from a different run."""
+def load_raw(path: Path, key: str, video_path: Path) -> RawClip | None:
+    """Load cached detections, or None if they came from a different run.
+
+    The key is the video's content, so the cache may have been made from another path or machine.
+    The clip records where the video is now, not where it was.
+    """
     if not path.exists():
         return None
     with np.load(path) as data:
@@ -240,7 +251,7 @@ def load_raw(path: Path, key: str) -> RawClip | None:
             for start, end in itertools.pairwise(offsets)
         ]
         return RawClip(
-            video=VideoInfo(**header["video"]),
+            video=VideoInfo(**{**header["video"], "path": str(video_path)}),
             times=data["times"].tolist(),
             cuts=data["cuts"].tolist(),
             detections=detections,
