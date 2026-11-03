@@ -13,7 +13,6 @@ from clayview.core.types import EgoStep, FlowPair
 
 @dataclass(frozen=True)
 class EgoConfig:
-    far_band_fraction: float = 0.07  # rows around the horizon that only see rotation
     near_band_fraction: float = 0.05  # road rows start this far below the horizon
     max_ground_range_m: float = 22.0
     max_ground_lateral_m: float = 9.0
@@ -27,17 +26,51 @@ class EgoConfig:
 
 
 def yaw_step(pair: FlowPair, camera: Camera, config: EgoConfig | None = None) -> float | None:
-    """Ego yaw in radians for one frame pair. Far points shift sideways only when ego rotates."""
+    """Ego yaw in radians for one frame pair."""
+    shift = rotation_shift(pair, camera, config)
+    return None if shift is None else -shift[0] / camera.focal_px
+
+
+def rotation_shift(
+    pair: FlowPair, camera: Camera, config: EgoConfig | None = None
+) -> tuple[float, float] | None:
+    """Image shift (right, down) in pixels that ego's yaw and pitch add to every point.
+
+    Driving forward, every static point flows straight away from the focus of expansion, however
+    far away it is. Turning adds the same sideways shift r to every point, and pitching the same
+    vertical shift q. So for a point p with flow d, (d - (r, q)) is parallel to p - FoE:
+
+        dx (y - fy) - dy (x - fx) = r (y - fy) - q (x - fx)
+
+    which is linear in r and q and needs no depth. The older estimate, the median sideways shift of
+    points near the horizon, took roadside trees and walls drifting outward for a turn.
+
+    The FoE has to be right to a pixel or two: on comma2k19, each pixel of error in its column
+    adds 2.7 degrees a minute of false turning, in proportion to speed.
+    """
     cfg = config or EgoConfig()
-    if len(pair.prev) == 0:
+    keep = pair.prev[:, 1] < camera.bottom
+    if int(keep.sum()) < cfg.min_points:
         return None
-    rows = pair.prev[:, 1]
-    band = cfg.far_band_fraction * camera.image_height
-    far = np.abs(rows - camera.horizon) < band
-    if int(far.sum()) < cfg.min_points:
-        return None
-    shift = float(np.median(pair.next[far, 0] - pair.prev[far, 0]))
-    return -shift / camera.focal_px
+    p = pair.prev[keep].astype(float)
+    d = (pair.next[keep] - pair.prev[keep]).astype(float)
+    across = p[:, 1] - camera.horizon
+    down = -(p[:, 0] - camera.cx)
+    target = d[:, 0] * across + d[:, 1] * down
+    design = np.stack([across, down], axis=1)
+    weights = np.ones(len(p))
+    shift = np.zeros(2)
+    for _ in range(5):
+        # Iteratively reweighted: moving cars and bad tracks are outliers, not noise.
+        scale = np.sqrt(weights)[:, None]
+        try:
+            shift, *_ = np.linalg.lstsq(design * scale, target * scale[:, 0], rcond=None)
+        except np.linalg.LinAlgError:
+            return None
+        residual = np.abs(design @ shift - target)
+        spread = max(float(np.median(residual)), 1e-6)
+        weights = 1.0 / np.maximum(residual / (2.0 * spread), 1.0)
+    return float(shift[0]), float(shift[1])
 
 
 def road_speeds(

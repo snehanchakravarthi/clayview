@@ -50,6 +50,19 @@ def test_yaw_right_shifts_far_points_left() -> None:
     assert yaw_step(FlowPair(points, moved), CAMERA) == pytest.approx(10.0 / CAMERA.focal_px)
 
 
+def test_roadside_flow_is_not_a_turn() -> None:
+    """Driving straight past trees on one side only. The median sideways shift near the horizon read
+    that as turning; on comma2k19 it turned 57 degrees a minute against a true 10."""
+    rng = np.random.default_rng(2)
+    points = np.stack([rng.uniform(1100, 1900, 120), rng.uniform(400, 1000, 120)], axis=1)
+    rate = rng.uniform(0.005, 0.05, (120, 1))
+    moved = points + (points - [CAMERA.cx, CAMERA.horizon]) * rate
+    pair = FlowPair(points.astype(np.float32), moved.astype(np.float32))
+    assert yaw_step(pair, CAMERA) == pytest.approx(0.0, abs=1e-4)
+    turning = FlowPair(pair.prev, pair.next + np.array([-6.0, 0.0], np.float32))
+    assert yaw_step(turning, CAMERA) == pytest.approx(6.0 / CAMERA.focal_px, rel=0.02)
+
+
 def test_series_fills_gaps_and_stays_smooth() -> None:
     pairs = [ground_pair(0.4, seed) for seed in range(40)]
     pairs[20] = FlowPair(np.empty((0, 2), np.float32), np.empty((0, 2), np.float32))
