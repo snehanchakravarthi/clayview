@@ -2,9 +2,8 @@
 
 Where cameras, the computer and the wires should go once clayview moves off a recorded clip.
 
-- Live planner: https://claude.ai/artifact/Xv1vJQCUXpRduvDdLMFe1c (private)
-- Same page in this repo: `planner.html`. Open it in a browser. It only needs internet for fonts.
-- Source: `src/model.js` (geometry and error model), `src/template.html` (the page), `src/build.js` (writes `planner.html`), `src/score.js` (prints the table below).
+- Planner: [`planner.html`](planner.html). Download or clone it and open it in a browser; GitHub shows only its source. It only needs internet for fonts.
+- Source: [`src/model.js`](src/model.js) (geometry and error model), [`src/template.html`](src/template.html) (the page), [`src/build.js`](src/build.js) (writes `planner.html`), [`src/score.js`](src/score.js) (prints the table below).
 
 ```sh
 node docs/camera-layout/src/build.js
