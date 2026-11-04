@@ -69,7 +69,7 @@ or the principal point dominate. sf_bay_bridge comes out at 119°.
 | mirpur_dhaka | wrong sign | — |
 | urdu_dhaka | 51.2° | yes |
 | leh_bike | wrong sign | — |
-| bled_rollei | 59.1° | doesn't explain the 0.64 speed ratio (needs ~42°) |
+| bled_rollei | 59.1° | doesn't explain the 0.68 speed ratio (needs ~42°) |
 | wintry_wipers | 36.3° | narrow but possible |
 | montblanc_tunnel | 33.3° | narrow but possible |
 | touareg_interior | wrong sign | — |
