@@ -2,14 +2,19 @@ import numpy as np
 import pytest
 
 from clayview.core.horizon import (
+    distort,
     estimate_ground_bottom,
     estimate_visible_bottom,
     fit_expansion,
     fit_focus_of_expansion,
+    fit_radial_distortion,
     fit_vehicle_horizon,
+    undistort,
+    undistort_pairs,
     vehicle_height_for_horizon,
     vehicle_samples,
 )
+from clayview.core.scene import CameraOptions, VideoInfo, calibrate
 from clayview.core.types import Box, Detection, FlowPair
 
 
@@ -181,3 +186,58 @@ def test_ground_bottom_finds_where_the_road_ends(hood_flow: float) -> None:
 def test_ground_bottom_needs_the_road_to_move() -> None:
     still = [FlowPair(p.prev, p.prev) for p in ground_pairs(540.0, 800.0, 0.0)]
     assert estimate_ground_bottom(still, 540.0, 1080) is None
+
+
+def wide_lens_pairs(k: float, row: float = 600.0, frames: int = 30) -> list[FlowPair]:
+    """A tilted-up camera with barrel distortion k: vanishing point at `row` of 720."""
+    rng = np.random.default_rng(5)
+    foe = undistort(np.array([640.0, row]), 1280, 720, k)
+    pairs: list[FlowPair] = []
+    for _ in range(frames):
+        image = rng.uniform([20.0, 20.0], [1260.0, 700.0], (300, 2))
+        straight = undistort(image, 1280, 720, k)
+        rate = rng.uniform(0.005, 0.05, (300, 1))
+        moved = distort(straight + (straight - foe) * rate, 1280, 720, k)
+        moved += rng.normal(0.0, 0.1, moved.shape)
+        pairs.append(FlowPair(image.astype(np.float32), moved.astype(np.float32)))
+    return pairs
+
+
+def test_distortion_round_trips() -> None:
+    points = np.array([[10.0, 700.0], [640.0, 360.0], [1200.0, 50.0]])
+    back = distort(undistort(points, 1280, 720, 0.6), 1280, 720, 0.6)
+    assert back == pytest.approx(points, abs=1e-3)
+
+
+def test_pinhole_flow_has_no_distortion() -> None:
+    assert fit_radial_distortion(wide_lens_pairs(0.0), 1280, 720) == 0.0
+
+
+def test_wide_lens_distortion_is_found() -> None:
+    """christchurch_left: a wide action camera bent the flow lines and put the FoE 50 px below
+    the lane lines' vanishing point, under the last visible road row."""
+    pairs = wide_lens_pairs(0.6)
+    plain = fit_focus_of_expansion(pairs, 1280, 720)
+    assert plain is not None
+    assert plain.y > 615.0  # the pinhole fit is pulled down
+    k = fit_radial_distortion(pairs, 1280, 720)
+    assert 0.4 <= k <= 0.8
+    video = VideoInfo("synthetic.mp4", 1280, 720, 30.0, 1.0, len(pairs) + 1)
+    camera = calibrate(pairs, [], video, CameraOptions()).camera
+    assert camera.horizon == pytest.approx(600.0, abs=8.0)
+    fit = fit_focus_of_expansion(undistort_pairs(pairs, 1280, 720, k), 1280, 720)
+    assert fit is not None
+    assert distort(np.array([fit.x, fit.y]), 1280, 720, k)[1] == pytest.approx(600.0, abs=6.0)
+
+
+def test_wide_lens_found_when_the_bent_fit_leaves_the_frame() -> None:
+    """Tilted further, the pinhole fit lands below the lowest row a FoE may sit on (684 of 720)
+    even though the true one, at 650, is inside it. That rejection must not end the search."""
+    pairs = wide_lens_pairs(0.6, row=650.0)
+    plain = fit_focus_of_expansion(pairs, 1280, 720)
+    assert plain is None
+    k = fit_radial_distortion(pairs, 1280, 720)
+    assert 0.4 <= k <= 0.8
+    video = VideoInfo("synthetic.mp4", 1280, 720, 30.0, 1.0, len(pairs) + 1)
+    camera = calibrate(pairs, [], video, CameraOptions()).camera
+    assert camera.horizon == pytest.approx(650.0, abs=8.0)

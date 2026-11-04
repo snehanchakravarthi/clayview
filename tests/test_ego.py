@@ -63,6 +63,38 @@ def test_roadside_flow_is_not_a_turn() -> None:
     assert yaw_step(turning, CAMERA) == pytest.approx(6.0 / CAMERA.focal_px, rel=0.02)
 
 
+def rolled(pair: FlowPair, roll_rad: float) -> FlowPair:
+    """The pair with the camera also rolling about the focus of expansion."""
+    centre = np.array([CAMERA.cx, CAMERA.horizon])
+    cos, sin = np.cos(roll_rad), np.sin(roll_rad)
+    offset = pair.next - centre
+    turned = np.stack(
+        [cos * offset[:, 0] - sin * offset[:, 1], sin * offset[:, 0] + cos * offset[:, 1]], 1
+    )
+    return FlowPair(pair.prev, (turned + centre).astype(np.float32))
+
+
+def test_body_roll_is_not_a_turn() -> None:
+    """On comma2k19 the camera rolls three times as much as it yaws from frame to frame. Road points
+    below the FoE see a roll as a sideways shift, and the yaw model had no roll term: it turned 19
+    degrees a minute against a true 10, with a correlation of 0.30 to the gyro."""
+    pair = ground_pair(1.0)
+    for roll_deg in (-0.1, 0.1):
+        assert yaw_step(rolled(pair, np.radians(roll_deg)), CAMERA) == pytest.approx(0.0, abs=2e-5)
+    turning = FlowPair(pair.prev, pair.next + np.array([-3.0, 0.0], np.float32))
+    turn = yaw_step(rolled(turning, np.radians(0.1)), CAMERA)
+    assert turn == pytest.approx(3.0 / CAMERA.focal_px, rel=0.05)
+
+
+def test_points_near_the_foe_still_see_a_turn() -> None:
+    """The floor on a point's distance from the FoE only sets its weight. Used in the roll term too,
+    it read a 3 px turn of points within 20 px of the FoE as 0.002 px."""
+    x = CAMERA.cx + np.linspace(-14.0, 14.0, 8)
+    points = np.stack([x, np.full(8, CAMERA.horizon + 10.0)], axis=1).astype(np.float32)
+    turning = FlowPair(points, points + np.array([-3.0, 0.0], np.float32))
+    assert yaw_step(turning, CAMERA) == pytest.approx(3.0 / CAMERA.focal_px, rel=0.02)
+
+
 def test_series_is_the_same_in_seconds_at_any_frame_rate() -> None:
     """Smoothing windows were in frames, so a 60 fps clip got half the smoothing of a 30 fps one."""
     results = []
@@ -95,5 +127,44 @@ def test_zoomed_camera_at_highway_speed() -> None:
     prev = [camera.image_point(a, b) for a, b in zip(x, y, strict=True)]
     next_ = [camera.image_point(a, b - forward_m) for a, b in zip(x, y, strict=True)]
     pair = FlowPair(np.array(prev, np.float32), np.array(next_, np.float32))
+    speeds = road_speeds(pair, camera, 1.0 / 14.2)
+    assert speed_from_points(speeds) == pytest.approx(32.0, rel=0.05)
+
+
+def test_lane_lines_and_shadows_do_not_drag_speed_down() -> None:
+    """On I-270 up to half the road points sat on lane lines, which run towards the FoE so the
+    tracker sees only their sideways drift, or on the shadows of cars pacing ego. Their rows stand
+    still, and ego read 0.85 of the lane-dash speed although every other road point read 1.0."""
+    camera = Camera(1280, 720, height_m=1.36, vfov_deg=9.2, horizon_y=356.0)
+    rng = np.random.default_rng(4)
+    forward_m = 32.0 / 14.2
+
+    def project(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        return np.array([camera.image_point(a, b) for a, b in zip(x, y, strict=True)])
+
+    x, y = rng.uniform(-3.0, 3.0, 60), rng.uniform(25.0, 60.0, 60)
+    road_prev, road_next = project(x, y), project(x, y - forward_m)
+
+    # Lane lines: the true flow runs along the line, which is radial, so the tracker catches only
+    # part of it, plus a sideways drift perpendicular to the line.
+    lx, ly = rng.choice([-1.8, 1.8], 45), rng.uniform(25.0, 60.0, 45)
+    line_prev = project(lx, ly)
+    caught = rng.uniform(0.0, 0.4, (45, 1))
+    outward = line_prev - [camera.cx, camera.horizon]
+    across = np.stack([-outward[:, 1], outward[:, 0]], axis=1)
+    across /= np.hypot(across[:, 0], across[:, 1])[:, None]
+    line_next = line_prev + caught * (project(lx, ly - forward_m) - line_prev)
+    line_next += across * rng.uniform(3.0, 6.0, (45, 1))
+
+    # Shadows of the cars ahead keep roughly pace with ego: sideways drift, a pixel or two of rows.
+    shadow_prev = project(rng.uniform(-3.0, 3.0, 30), rng.uniform(30.0, 60.0, 30))
+    shadow_next = shadow_prev + np.stack(
+        [rng.choice([-1.0, 1.0], 30) * rng.uniform(3.0, 6.0, 30), rng.normal(0.0, 1.5, 30)], axis=1
+    )
+
+    prev = np.concatenate([road_prev, line_prev, shadow_prev])
+    next_ = np.concatenate([road_next, line_next, shadow_next])
+    next_ += rng.normal(0.0, 0.3, next_.shape)  # tracker noise
+    pair = FlowPair(prev.astype(np.float32), next_.astype(np.float32))
     speeds = road_speeds(pair, camera, 1.0 / 14.2)
     assert speed_from_points(speeds) == pytest.approx(32.0, rel=0.05)
