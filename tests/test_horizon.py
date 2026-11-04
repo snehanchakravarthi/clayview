@@ -14,6 +14,7 @@ from clayview.core.horizon import (
     vehicle_height_for_horizon,
     vehicle_samples,
 )
+from clayview.core.scene import CameraOptions, VideoInfo, calibrate
 from clayview.core.types import Box, Detection, FlowPair
 
 
@@ -173,10 +174,10 @@ def test_ground_bottom_needs_the_road_to_move() -> None:
     assert estimate_ground_bottom(still, 540.0, 1080) is None
 
 
-def wide_lens_pairs(k: float, frames: int = 30) -> list[FlowPair]:
-    """A tilted-up camera with barrel distortion k: vanishing point at row 600 of 720."""
+def wide_lens_pairs(k: float, row: float = 600.0, frames: int = 30) -> list[FlowPair]:
+    """A tilted-up camera with barrel distortion k: vanishing point at `row` of 720."""
     rng = np.random.default_rng(5)
-    foe = undistort(np.array([640.0, 600.0]), 1280, 720, k)
+    foe = undistort(np.array([640.0, row]), 1280, 720, k)
     pairs: list[FlowPair] = []
     for _ in range(frames):
         image = rng.uniform([20.0, 20.0], [1260.0, 700.0], (300, 2))
@@ -207,6 +208,22 @@ def test_wide_lens_distortion_is_found() -> None:
     assert plain.y > 615.0  # the pinhole fit is pulled down
     k = fit_radial_distortion(pairs, 1280, 720)
     assert 0.4 <= k <= 0.8
+    video = VideoInfo("synthetic.mp4", 1280, 720, 30.0, 1.0, len(pairs) + 1)
+    camera = calibrate(pairs, [], video, CameraOptions()).camera
+    assert camera.horizon == pytest.approx(600.0, abs=8.0)
     fit = fit_focus_of_expansion(undistort_pairs(pairs, 1280, 720, k), 1280, 720)
     assert fit is not None
     assert distort(np.array([fit.x, fit.y]), 1280, 720, k)[1] == pytest.approx(600.0, abs=6.0)
+
+
+def test_wide_lens_found_when_the_bent_fit_leaves_the_frame() -> None:
+    """Tilted further, the pinhole fit lands below the lowest row a FoE may sit on (684 of 720)
+    even though the true one, at 650, is inside it. That rejection must not end the search."""
+    pairs = wide_lens_pairs(0.6, row=650.0)
+    plain = fit_focus_of_expansion(pairs, 1280, 720)
+    assert plain is None
+    k = fit_radial_distortion(pairs, 1280, 720)
+    assert 0.4 <= k <= 0.8
+    video = VideoInfo("synthetic.mp4", 1280, 720, 30.0, 1.0, len(pairs) + 1)
+    camera = calibrate(pairs, [], video, CameraOptions()).camera
+    assert camera.horizon == pytest.approx(650.0, abs=8.0)
