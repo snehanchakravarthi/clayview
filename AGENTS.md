@@ -14,7 +14,7 @@ Phase 1, recorded clips only: no hardware and no live camera. A Python pipeline 
 - **Viewer:** TypeScript (strict), Vite, Three.js, `bun`. No framework.
 - **Tools:** versions in `.mise.toml`. ffmpeg for clip conversion.
 
-The repo is public. Ultralytics is AGPL-3.0 and the street model's training data (Mapillary Vistas) is non-commercial, so don't ship a hosted service or a binary without dealing with that. No licence has been chosen for clayview's own code yet; leave that to the owner.
+The repo is public and licensed AGPL-3.0-only (`LICENSE`), because Ultralytics YOLO is AGPL-3.0. The street model's training data (Mapillary Vistas) is non-commercial whatever the code's licence, so nothing that uses it may be sold or run as a paid service.
 
 ## Commands
 

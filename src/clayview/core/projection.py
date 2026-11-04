@@ -6,6 +6,13 @@ Two independent distance estimates are fused by inverse variance:
   one pixel of error is worth d^2/(f*h) metres, so it blows up near the horizon.
 - size: a class has a typical real size, d = f*W/width_px. Proportional error at any range, and
   it is the only option when the bottom of the box is cut off.
+
+Detection boxes are drawn a few pixels outside the object, a fixed amount in the detector's own
+input grid. Against comma2k19's radar, YOLO's car boxes were 4 px wider and 4 px taller than the
+car at every range from 25 to 70 m. At 60 m a car is 30 px wide, so the padding alone read 13%
+short. Half of it is under the tyres: with the bottom taken as the contact, the camera height that
+radar implies is the one ground flow and CAN speed imply, 1.45 m against 1.59 m. The padding is
+taken off a box's size, and half of it off its bottom, before either means anything.
 """
 
 from __future__ import annotations
@@ -42,6 +49,18 @@ CLASS_PRIORS: dict[str, ClassPrior] = {
     "bicycle": ClassPrior(0.6, 1.7, 1.8, use_height=True),
     "person": ClassPrior(0.5, 1.7, 0.4, use_height=True),
 }
+
+
+# Padding of a detection box, in the detector's input pixels: comma2k19's 4.2 px at 1164 wide, seen
+# through a 960 px input. A 1080p clip through the same input shows about 7 px.
+DETECTOR_BOX_PAD_PX = 3.5
+
+
+def box_pad_px(image_width: int, image_height: int, detector_size_px: int | None) -> float:
+    """Box padding in video pixels. The detector letterboxes the frame's long side to its size."""
+    if not detector_size_px:
+        return 0.0
+    return DETECTOR_BOX_PAD_PX * max(image_width, image_height) / detector_size_px
 
 
 @dataclass(frozen=True)
@@ -97,7 +116,7 @@ def project_box(
 
     # A box cut by a side edge keeps one honest edge; rebuild the centre from it.
     center_x = (box.x1 + box.x2) / 2.0
-    expected_width_px = focal * prior.width_m / distance
+    expected_width_px = focal * prior.width_m / distance + camera.box_pad_px
     if cut_left and not cut_right:
         center_x = box.x2 - expected_width_px / 2.0
     elif cut_right and not cut_left:
@@ -119,9 +138,10 @@ def _ground_estimate(
     box: Box, camera: Camera, cut_bottom: bool, cfg: ProjectionConfig
 ) -> tuple[float, float] | None:
     """(distance, sigma) from the ground contact, or None if there isn't a usable one."""
-    if cut_bottom or box.y2 - camera.horizon < cfg.min_ground_below_horizon_px:
+    contact = box.y2 - camera.box_pad_px / 2.0  # the padding is split between top and bottom
+    if cut_bottom or contact - camera.horizon < cfg.min_ground_below_horizon_px:
         return None
-    distance = camera.ground_distance(box.y2)
+    distance = camera.ground_distance(contact)
     if distance is None:
         return None
     sigma_px = cfg.sigma_bottom_px + cfg.sigma_bottom_box_fraction * box.height
@@ -138,18 +158,20 @@ def _size_estimate(
     cfg: ProjectionConfig,
 ) -> tuple[float, float] | None:
     """(distance, sigma) from the class size prior, using the dimension the box can vouch for."""
-    if box.width <= 0.0 or box.height <= 0.0:
+    width = box.width - camera.box_pad_px
+    height = box.height - camera.box_pad_px
+    if width <= 0.0 or height <= 0.0:
         return None
     # A close car cut by the hood looks wide only because its height is missing.
     oblique = not cut_vertical and box.width / box.height > cfg.oblique_aspect
     prefer_height = prior.use_height or oblique
 
     if prefer_height and not cut_vertical:
-        real_m, size_px = prior.height_m, box.height
+        real_m, size_px = prior.height_m, height
     elif not cut_horizontal and not oblique:
-        real_m, size_px = prior.width_m, box.width
+        real_m, size_px = prior.width_m, width
     elif not cut_vertical:
-        real_m, size_px = prior.height_m, box.height
+        real_m, size_px = prior.height_m, height
     else:
         return None
 

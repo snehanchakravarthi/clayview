@@ -27,6 +27,7 @@ class Camera:
     horizon_y: float | None = None
     center_x: float | None = None
     visible_bottom: float | None = None
+    box_pad_px: float = 0.0  # how much wider and taller than the object a detection box is drawn
 
     @property
     def focal_px(self) -> float:

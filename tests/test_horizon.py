@@ -64,6 +64,23 @@ def test_vehicle_samples_keep_rear_on_cars_only() -> None:
     assert samples.tolist() == [[600.0, 110.0]]
 
 
+def test_height_fit_takes_the_box_padding_off() -> None:
+    # Cars of 1.8 m under a 1.5 m camera, every box drawn 2 px outside the car all round. Most
+    # samples are far and small, as on comma2k19.
+    rows = np.linspace(400.0, 460.0, 40)
+    detections = [
+        Detection(
+            index * 5, index, "car", 0.9, Box(958.0 - w / 2, row - w, 962.0 + w / 2, row + 2.0)
+        )
+        for index, (row, w) in enumerate(zip(rows, (rows - 378.0) * 1.2, strict=True))
+    ]
+    padded = vehicle_samples(detections, 1920, 1080)
+    unpadded = vehicle_samples(detections, 1920, 1080, box_pad_px=4.0)
+    assert vehicle_height_for_horizon(padded, 378.0) == pytest.approx(1.5, abs=0.15)
+    assert vehicle_height_for_horizon(padded, 378.0) != pytest.approx(1.5, abs=0.03)
+    assert vehicle_height_for_horizon(unpadded, 378.0) == pytest.approx(1.5, abs=0.01)
+
+
 def expansion_pairs(foe: tuple[float, float], frames: int = 12, seed: int = 1) -> list[FlowPair]:
     rng = np.random.default_rng(seed)
     center = np.array(foe)
