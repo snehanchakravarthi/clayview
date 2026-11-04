@@ -1,7 +1,13 @@
 import pytest
 
 from clayview.core.camera import Camera
-from clayview.core.projection import ProjectionConfig, footprint_half_extent, project_box
+from clayview.core.projection import (
+    DETECTOR_BOX_PAD_PX,
+    ProjectionConfig,
+    box_pad_px,
+    footprint_half_extent,
+    project_box,
+)
 from clayview.core.types import (
     FLAG_CLAMPED,
     FLAG_NO_GROUND,
@@ -115,3 +121,45 @@ def test_person_uses_height() -> None:
 def test_footprint_extent_is_half_length_end_on_and_half_width_side_on() -> None:
     assert footprint_half_extent("car", 0.0) == pytest.approx(2.25)
     assert footprint_half_extent("car", 1.5707963) == pytest.approx(0.9, abs=0.01)
+
+
+# comma2k19, Example_1: median YOLO boxes of rear-on lead cars by CAN radar range. Columns are radar
+# range in metres, box width, box height and box bottom in pixels. The camera is 1164x874 with a
+# 910 px focal length, seen through a 960 px detector; the horizon is 378 px.
+COMMA_LEADS = [
+    (29.6, 56.8, 48.3, 423.5),
+    (37.7, 45.6, 38.4, 412.4),
+    (63.3, 29.4, 25.3, 398.5),
+]
+# The radar is in the front bumper, about 1.5 m ahead of a RAV4's windshield camera.
+COMMA_RADAR_AHEAD_M = 1.5
+
+
+def _comma_camera(pad: float, height_m: float = 1.54) -> Camera:
+    return Camera(1164, 874, height_m=height_m, vfov_deg=51.3, horizon_y=378.3, box_pad_px=pad)
+
+
+def test_box_padding_in_the_detector_grid_scales_with_the_frame() -> None:
+    assert box_pad_px(1164, 874, 960) == pytest.approx(DETECTOR_BOX_PAD_PX * 1164 / 960)
+    assert box_pad_px(1080, 1920, 960) == pytest.approx(2.0 * DETECTOR_BOX_PAD_PX)
+    assert box_pad_px(1164, 874, None) == 0.0
+
+
+@pytest.mark.parametrize(("radar", "width", "height", "bottom"), COMMA_LEADS)
+def test_comma2k19_leads_match_radar(
+    radar: float, width: float, height: float, bottom: float
+) -> None:
+    box = Box(582.0 - width / 2.0, bottom - height, 582.0 + width / 2.0, bottom)
+    pad = box_pad_px(1164, 874, 960)
+    result = project_box(box, "car", _comma_camera(pad))
+    assert result is not None
+    assert result.y == pytest.approx(radar + COMMA_RADAR_AHEAD_M, rel=0.06)
+
+
+def test_unpadded_boxes_put_far_comma2k19_leads_short() -> None:
+    # The old pipeline: padding left in, and the 1.37 m camera height it calibrated from them.
+    radar, width, height, bottom = COMMA_LEADS[-1]
+    box = Box(582.0 - width / 2.0, bottom - height, 582.0 + width / 2.0, bottom)
+    result = project_box(box, "car", _comma_camera(0.0, height_m=1.37))
+    assert result is not None
+    assert result.y < 0.92 * (radar + COMMA_RADAR_AHEAD_M)
