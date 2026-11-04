@@ -156,18 +156,19 @@ The main check is one minute of [comma2k19](https://github.com/commaai/comma2k19
 | Measure | Before | Now | Truth |
 | --- | --- | --- | --- |
 | False cuts (wipers running) | 16 | 0 | 0 |
-| Ego speed vs CAN | 0.61× | 0.95× | 1× |
-| Net yaw drift | +29°/min | −2°/min | +0.4°/min |
+| Ego speed vs CAN | 0.61× | 0.96× | 1× |
+| Turning | 57°/min | 10°/min | 10.3°/min |
+| Yaw correlation with the vehicle's poses | 0.08 | 0.79 | 1 |
+| Net yaw drift | +29°/min | −1°/min | +0.4°/min |
 | Horizon error | 5.2 px | 2.0 px | 0 |
-| Distance vs radar, 20–40 m | 1.01× | 0.93× | 1× |
+| Distance vs radar, 20–40 m | 1.01× | 0.94× | 1× |
 | Distance vs radar, 40–70 m | 0.88× | 0.90× | 1× |
 
-It also runs on 14 clips from other cameras and countries: snow, night fog, glare, rain, a tunnel, Dhaka traffic and a portrait phone. Most have no measured truth, so they mostly catch crashes, false cuts and implausible numbers. Known failures remain:
+It also runs on 21 clips from other cameras and countries: city streets in Slovenia, Poland, Australia, the US and India, snow, night fog, glare, rain, a tunnel, a Maryland interstate, Dhaka traffic and a portrait phone. Most have no measured truth, so they mostly catch crashes, false cuts and implausible numbers. The interstate does: at about 115 km/h, measured from its lane-dash timing, it reads 112 km/h once it's given its lens's field of view. Known failures remain:
 
-- **Highway speeds collapse.** On a Croatian motorway at 106–131 km/h, read from the clip's speed overlay, ego speed came out at a median of 0.9 km/h; a Maryland interstate at about 115 km/h read 16. The fast road near the car isn't tracked, so the static dash wins. Speed has only been checked up to about 60 km/h, so treat the street rebuild on fast roads as broken for now.
-- Wide-angle lenses read speed low: 0.63× on a Bled clip with a speed overlay. Focal length can't be recovered from a clip, so `--vfov` has to be right.
-- A camera tilted up at the sky can't read speed.
-- Interior POV clips, with the steering wheel in frame, aren't refused.
+- **Focal length isn't estimated.** Speed and distance scale with it, and a clip alone doesn't reveal it, so `--vfov` is a guess for any camera you don't know. The interstate camera is zoomed to a 9° field of view and only reads right when told so. A wide Rollei dashcam on a Bled lake road reads 0.64× its burned-in speed at the default 60°.
+- **Timelapses aren't detected.** A 4× timelapse of a Croatian motorway moves about 4.75 m between frames, too far to track, and reads 0.04× its true speed in video time.
+- **Interior POV clips aren't refused.** With the steering wheel and dash in frame, speed and calibration are unreliable.
 
 ![Night fog in Ljubljana beside its clay rebuild in the chase view](docs/images/night-fog.jpg)
 
@@ -187,9 +188,9 @@ uv run python tools/eval/eval.py score            # rescore existing scene files
 ## Limitations
 
 - **Distances are estimates with an unknown scale.** `--vfov` is a guess for any clip you didn't film yourself. Expect the relative layout to be good and absolute metres to be off by 20% or more.
-- **Lenses are assumed perfect.** Wide dashcam lenses bend straight lines, which matters most at the edges of the frame.
+- **Lenses are treated as pinholes for distance.** Barrel distortion is corrected only when finding the horizon, so on wide lenses positions near the edges of the frame bend.
 - **The road is assumed flat.** Hills move the true horizon, and calibration is per shot, not per frame.
-- **Ego speed comes from road texture.** It's checked against real speed on comma2k19 and two speed overlays, and it fails at highway speed (see above). Bare asphalt, night and rain will all hurt it.
+- **Ego speed comes from road texture.** It's checked against real speed on comma2k19 at about 60 km/h, the interstate at about 115 and the Bled overlay. Bare asphalt, night and rain will all hurt it.
 - **Headings are approximate.** On 32 hand-labelled cars from the test clips, the median error is about 32° and 12% of cars face the wrong way. That's a small sample on one dashcam. The view model is often wrong on cars partly hidden by a dash mount, and small, far cars are weak.
 - **The street is rebuilt from one forward camera.** It is not survey accurate. Curbs, paint, trees, poles and buildings are projected onto a flat road and joined along ego's estimated path, so errors in speed, yaw or calibration bend the map. Paint near the car can be about a metre off and arrows can smear. Anything the camera never saw clearly is missing, and tree heights run low when a canopy leaves the frame.
 - **Only one camera sees forward.** Things that pass you coast briefly and fade out. Nothing is known behind or beside you.
