@@ -6,10 +6,10 @@ import itertools
 import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from clayview.core.camera import Camera
-from clayview.core.heading import EgoPath, HeadingConfig, HeadingCues, solve_heading
+from clayview.core.heading import EgoPath, HeadingConfig, HeadingCues, mount_at, solve_heading
 from clayview.core.projection import ProjectionConfig, footprint_half_extent, project_box
 from clayview.core.smoother import FilterConfig, Measurement, State, Step, smooth_sequence
 from clayview.core.types import (
@@ -242,7 +242,8 @@ def _build_one(
     for detection in detections:
         observation = project_box(detection.box, class_name, camera, pcfg)
         if observation is not None:
-            observed[detection.frame] = (detection, observation)
+            mount = mount_at(ego_steps, detection.frame)
+            observed[detection.frame] = (detection, _to_car_frame(observation, mount))
     if len(observed) < cfg.min_detections:
         return None
 
@@ -319,6 +320,23 @@ def _build_one(
             )
         )
     return first_frame, class_name, segment.index, tuple(samples)
+
+
+def _to_car_frame(observation: Observation, mount: float) -> Observation:
+    """An observation in the camera's frame, turned into the car's.
+
+    A camera turned right on its mount by `mount` sees straight ahead what is that far right of the
+    car's nose. Its error ellipse turns with it, so the sigmas become the turned ellipse's spread
+    along the car's axes: a long range error leaks sideways when the camera looks aside.
+    """
+    if mount == 0.0:
+        return observation
+    cos, sin = math.cos(mount), math.sin(mount)
+    x = cos * observation.x + sin * observation.y
+    y = -sin * observation.x + cos * observation.y
+    sigma_x = math.hypot(cos * observation.sigma_x, sin * observation.sigma_y)
+    sigma_y = math.hypot(sin * observation.sigma_x, cos * observation.sigma_y)
+    return replace(observation, x=x, y=y, sigma_x=sigma_x, sigma_y=sigma_y)
 
 
 def _measurement(observation: Observation) -> Measurement:
