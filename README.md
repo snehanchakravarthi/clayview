@@ -207,10 +207,12 @@ cd viewer && bun run test && bun run typecheck
 
 ## Licence
 
-A licence for clayview's own code hasn't been chosen yet, so there is no `LICENSE` file. Its dependencies come with terms of their own:
+clayview is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). You can use, study, change and share it. If you distribute it, or run a modified version as a service people use over a network, you have to offer them the source of your version under the same licence.
 
-- [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), which does detection and tracking, is AGPL-3.0. That is copyleft, and it covers software offered over a network as well as software you distribute.
-- The street model is Mask2Former trained on [Mapillary Vistas](https://huggingface.co/facebook/mask2former-swin-large-mapillary-vistas-semantic). Its Hugging Face licence is listed as `other`, and Vistas is a non-commercial research dataset.
+It's AGPL because clayview runs on Ultralytics YOLO, which is AGPL-3.0 itself, so anything that ships or hosts clayview is bound by the AGPL anyway. Its dependencies come with terms of their own:
+
+- [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), which does detection and tracking, is AGPL-3.0.
+- The street model is Mask2Former trained on [Mapillary Vistas](https://huggingface.co/facebook/mask2former-swin-large-mapillary-vistas-semantic). Its Hugging Face licence is listed as `other`, and Vistas is a non-commercial research dataset. That limit comes with the weights, whatever licence covers the code, so don't use clayview commercially with this model.
 - The car view model is the ConvNeXt from [Car Full View Dataset](https://www.mdpi.com/2079-9292/12/24/4947) (Catruna et al., 2023), Apache-2.0 on [Hugging Face](https://huggingface.co/fort-cyber/Car-orientation-image). `clayview` checks its SHA-256 after download.
 
 Clips and model weights are never committed. The weights are downloaded on first run, and eval clips are fetched from their sources.
