@@ -34,12 +34,15 @@ class EgoConfig:
     min_ray_px: float = 20.0
     # Whether ego moves at all is read from the scene off the road, which rain, wipers and a wet
     # road's reflections don't touch. A static point expands away from the FoE at v / depth per
-    # second; at `scene_min_rate` that is 1.5 m/s for scenery 30 m away, hence the floor below.
+    # second, so expansion proves motion but not a speed: creeping at 1 m/s past trees 10 m away
+    # expands as fast as 10 m/s past trees 100 m away.
     scene_min_rate: float = 0.05  # per second
     scene_moving_share: float = 0.5  # share of off-road points expanding that means ego moves
     scene_min_ray_fraction: float = 0.05  # of the image height; nearer the FoE is too little flow
     scene_half_s: float = 0.5  # the share is a median over this long each side, past a wiper
-    moving_floor_mps: float = 1.5  # a road reading under this, while the scene moves, is not road
+    # A road reading v, with the scene expanding at a median rate e, puts the scenery v / e away.
+    # Under this, the scenery would be nearer than anything beside a road: the road band is glass.
+    scene_min_depth_m: float = 4.0
 
 
 def yaw_step(pair: FlowPair, camera: Camera, config: EgoConfig | None = None) -> float | None:
@@ -151,8 +154,9 @@ def _radial(pair: FlowPair, camera: Camera, cfg: EgoConfig) -> np.ndarray:
 
 def scene_expansion(
     pair: FlowPair, camera: Camera, dt: float, config: EgoConfig | None = None
-) -> float | None:
-    """Share of the points above the road that expand away from the FoE, or None if too few.
+) -> tuple[float, float] | None:
+    """Share of the points above the road that expand away from the FoE, and their median rate of
+    expansion per second, or None if there are too few.
 
     Driving forward, every static point flows away from the FoE at v / depth per second. Stopped,
     nothing does, whatever ego's rotation. The points come from above the horizon: trees, poles and
@@ -172,7 +176,7 @@ def scene_expansion(
     if int(far.sum()) < cfg.min_points:
         return None
     rate = np.einsum("ij,ij->i", flow[far], outward[far]) / squared[far] / max(dt, 1e-3)
-    return float(np.mean(rate > cfg.scene_min_rate))
+    return float(np.mean(rate > cfg.scene_min_rate)), float(np.median(rate))
 
 
 def speed_from_points(speeds: np.ndarray, config: EgoConfig | None = None) -> float | None:
@@ -223,7 +227,7 @@ def estimate_ego_series(
     point_speeds = [road_speeds(pair, camera, dts[i], cfg) for i, pair in enumerate(pairs)]
     frame_dt = float(np.median([dt for dt in dts if dt > 0])) if count > 1 else 1.0 / 30.0
     pool = round(cfg.pool_s / frame_dt)
-    moving = _scene_moving(pairs, dts, frame_dt, camera, cfg)
+    floor = _scene_floor(pairs, dts, frame_dt, camera, cfg)
     yaw = np.full(count, np.nan)
     speed = np.full(count, np.nan)
     for index, pair in enumerate(pairs):
@@ -235,8 +239,8 @@ def estimate_ego_series(
         measured = speed_from_points(pooled, cfg)
         if measured is None or not -2.0 <= measured <= cfg.max_speed_mps:
             continue
-        if moving[index] and measured < cfg.moving_floor_mps:
-            continue  # the scene moves and the road doesn't: the road band is glass, not road
+        if measured < floor[index]:
+            continue  # the scene moves faster than the road: the road band is glass, not road
         speed[index] = max(measured, 0.0)
 
     coverage = float(np.isfinite(speed).mean()) if count else 0.0
@@ -249,30 +253,29 @@ def estimate_ego_series(
     return steps, coverage
 
 
-def _scene_moving(
+def _scene_floor(
     pairs: Sequence[FlowPair],
     dts: Sequence[float],
     frame_dt: float,
     camera: Camera,
     cfg: EgoConfig,
 ) -> np.ndarray:
-    """Per pair, whether the scene above the road says ego is moving.
+    """Per pair, the slowest road speed the scene above the road allows, in m/s; 0 if it's still.
 
-    A median over a second, so a wiper sweep or a frame of tracking junk doesn't flip it.
+    Medians over a second, so a wiper sweep or a frame of tracking junk doesn't move it.
     """
-    shares = np.array(
-        [
-            np.nan if (share := scene_expansion(pair, camera, dts[i], cfg)) is None else share
-            for i, pair in enumerate(pairs)
-        ]
-    )
+    measured = [scene_expansion(pair, camera, dts[i], cfg) for i, pair in enumerate(pairs)]
+    shares = np.array([np.nan if m is None else m[0] for m in measured])
+    rates = np.array([np.nan if m is None else m[1] for m in measured])
     half = round(cfg.scene_half_s / frame_dt)
-    moving = np.zeros(len(pairs), dtype=bool)
+    floor = np.zeros(len(pairs))
     for index in range(len(pairs)):
-        window = shares[max(index - half, 0) : index + half + 1]
-        window = window[np.isfinite(window)]
-        moving[index] = len(window) > 0 and float(np.median(window)) >= cfg.scene_moving_share
-    return moving
+        window = slice(max(index - half, 0), index + half + 1)
+        known = np.isfinite(shares[window])
+        if not known.any() or float(np.median(shares[window][known])) < cfg.scene_moving_share:
+            continue
+        floor[index] = cfg.scene_min_depth_m * max(float(np.median(rates[window][known])), 0.0)
+    return floor
 
 
 def _smooth_series(values: np.ndarray, frame_dt: float, cfg: EgoConfig) -> np.ndarray:

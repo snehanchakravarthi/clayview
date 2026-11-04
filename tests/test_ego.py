@@ -205,8 +205,11 @@ def combine(*pairs: FlowPair) -> FlowPair:
 
 def test_scene_above_the_road_says_whether_ego_moves() -> None:
     rng = np.random.default_rng(5)
-    assert scene_expansion(scenery(0.5, rng), CAMERA, DT) > 0.9
-    assert scene_expansion(scenery(0.0, rng), CAMERA, DT) < 0.1
+    moving = scene_expansion(scenery(0.5, rng), CAMERA, DT)
+    still = scene_expansion(scenery(0.0, rng), CAMERA, DT)
+    assert moving is not None and still is not None
+    assert moving[0] > 0.9 and moving[1] > 0.1  # share expanding, and rate per second
+    assert still[0] < 0.1 and abs(still[1]) < 0.01
     assert scene_expansion(glass(rng), CAMERA, DT) is None  # nothing above the road
 
 
@@ -250,3 +253,28 @@ def test_a_wiper_sweep_while_stopped_is_not_motion() -> None:
     steps, _ = estimate_ego_series(pairs, times, CAMERA)
     speeds = np.array([step.forward_m for step in steps]) / DT
     assert np.all(speeds < 0.5)
+
+
+def test_creeping_past_near_scenery_is_not_discarded() -> None:
+    """Expansion proves motion, not a minimum speed. Creeping at 1 m/s past scenery 8 to 15 m away,
+    the scene expands at about 0.1 /s, well above the moving threshold, and the road's consistent
+    1 m/s is right: a fixed 1.5 m/s floor threw every reading away and the shot read as a stop."""
+    rng = np.random.default_rng(8)
+    forward_m = 1.0 * DT
+    pairs = []
+    for index in range(120):
+        x = rng.choice([-1.0, 1.0], 60) * rng.uniform(3.0, 6.0, 60)
+        z = rng.uniform(2.0, 5.0, 60)
+        y = rng.uniform(8.0, 15.0, 60)
+
+        def project(depth: np.ndarray, x=x, z=z) -> np.ndarray:
+            column = CAMERA.cx + CAMERA.focal_px * x / depth
+            row = CAMERA.horizon + CAMERA.focal_px * (CAMERA.height_m - z) / depth
+            return np.stack([column, row], axis=1)
+
+        near = FlowPair(project(y).astype(np.float32), project(y - forward_m).astype(np.float32))
+        pairs.append(combine(ground_pair(forward_m, seed=index), near))
+    times = [index * DT for index in range(121)]
+    steps, _ = estimate_ego_series(pairs, times, CAMERA)
+    speeds = np.array([step.forward_m for step in steps]) / DT
+    assert np.all(np.abs(speeds[10:-10] - 1.0) < 0.2)
