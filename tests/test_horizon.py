@@ -5,6 +5,7 @@ from clayview.core.horizon import (
     distort,
     estimate_ground_bottom,
     estimate_visible_bottom,
+    expansion_spread,
     fit_expansion,
     fit_focus_of_expansion,
     fit_radial_distortion,
@@ -159,6 +160,37 @@ def test_expansion_is_solved_with_rotation() -> None:
     assert fit is not None
     assert fit.x == pytest.approx(1010.0, abs=1.5)
     assert fit.y == pytest.approx(600.0, abs=1.5)
+
+
+def test_bad_tracks_cannot_walk_the_foe_along_the_rotation_valley() -> None:
+    """sf_bay_bridge: tracks on the suspension cables keep only their sideways motion. The joint fit
+    caps each one's pull but never drops it, and a FoE error looks like rotation, so they lifted
+    its horizon 23 px above the lane paint. A median of each frame's residual isn't moved by them.
+    """
+    rng = np.random.default_rng(3)
+    foe = np.array([960.0, 600.0])
+    pairs: list[FlowPair] = []
+    for _ in range(40):
+        points = rng.uniform([50.0, 50.0], [1870.0, 1030.0], (200, 2))
+        moved = points + (points - foe) * rng.uniform(0.002, 0.05, (200, 1))
+        cables = rng.uniform([50.0, 50.0], [1870.0, 450.0], (50, 2))
+        slid = cables.copy()
+        slid[:, 0] += (cables[:, 0] - foe[0]) * rng.uniform(0.02, 0.06, 50)
+        both = np.concatenate([points, cables]), np.concatenate([moved, slid])
+        noisy = [side + rng.normal(0.0, 0.05, side.shape) for side in both]
+        pairs.append(FlowPair(*(side.astype(np.float32) for side in noisy)))
+
+    joint = fit_expansion(pairs, 1920, 1080, bottom=1080.0)
+    lines = fit_focus_of_expansion(pairs, 1920, 1080)
+    assert joint is not None and lines is not None
+    assert joint.y < 560.0  # dragged up
+    joint_spread = expansion_spread(pairs, joint, 1920, 1080, 1080.0)
+    lines_spread = expansion_spread(pairs, lines, 1920, 1080, 1080.0)
+    assert joint_spread is not None and lines_spread is not None
+    assert lines_spread < joint_spread
+    video = VideoInfo("synthetic.mp4", 1920, 1080, 30.0, 1.0, len(pairs) + 1)
+    camera = calibrate(pairs, [], video, CameraOptions()).camera
+    assert camera.horizon == pytest.approx(600.0, abs=3.0)
 
 
 def ground_pairs(horizon: float, hood: float, hood_flow: float, frames: int = 20) -> list[FlowPair]:

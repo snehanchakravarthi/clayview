@@ -212,17 +212,7 @@ def fit_expansion(
     Points below `bottom` (hood, dash) are left out: they don't move, which reads as no rotation.
     """
     center = np.array([image_width / 2.0, image_height / 2.0])
-    frames: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
-    for pair in pairs:
-        keep = pair.prev[:, 1] < bottom
-        if int(keep.sum()) < min_points:
-            continue
-        p = pair.prev[keep].astype(float) - center
-        d = (pair.next[keep] - pair.prev[keep]).astype(float)
-        target = d[:, 0] * p[:, 1] - d[:, 1] * p[:, 0]
-        shared = np.stack([d[:, 0], -d[:, 1]], axis=1)  # coefficients of fy, fx
-        own = np.stack([p[:, 1], -p[:, 0], np.ones(len(p))], axis=1)  # of r, q, c
-        frames.append((target, shared, own))
+    frames = _expansion_rows(pairs, center, bottom, min_points)
     if sum(len(target) for target, _, _ in frames) < 200:
         return None
 
@@ -258,6 +248,63 @@ def fit_expansion(
         return None
     points = sum(len(target) for target, _, _ in frames)
     return FoeFit(x, y, points, residual_px)
+
+
+def expansion_spread(
+    pairs: Sequence[FlowPair],
+    foe: FoeFit,
+    image_width: int,
+    image_height: int,
+    bottom: float,
+    min_points: int = 20,
+) -> float | None:
+    """How far flow misses a FoE once each frame's rotation is fitted, robustly: the mean over
+    frames of the median residual of the equation in `fit_expansion`. Lower is better.
+
+    This is the yardstick for choosing between FoE fits. `fit_expansion`'s reweighting caps each
+    outlier's pull but never drops it, and an error in the FoE looks almost exactly like rotation
+    whenever a frame's points move at similar speeds, so a large, consistent set of bad tracks can
+    walk the FoE along that valley at little cost. A median can't be dragged by anything short of
+    half a frame's points.
+    """
+    center = np.array([image_width / 2.0, image_height / 2.0])
+    frames = _expansion_rows(pairs, center, bottom, min_points)
+    if not frames:
+        return None
+    unknown = np.array([foe.y - center[1], foe.x - center[0]])
+    spreads = []
+    for target, shared, own in frames:
+        rest = target - shared @ unknown
+        weight = np.ones(len(rest))
+        spread = 0.0
+        for _ in range(3):
+            root = np.sqrt(weight)
+            coefficients, *_ = np.linalg.lstsq(own * root[:, None], rest * root, rcond=None)
+            residual = np.abs(rest - own @ coefficients)
+            spread = max(float(np.median(residual)), 1e-6)
+            # Tukey's biweight: points well off the frame's rotation get no say in it at all.
+            scaled = residual / (4.685 * 1.4826 * spread)
+            weight = np.where(scaled < 1.0, (1.0 - scaled**2) ** 2, 0.0)
+        spreads.append(spread)
+    return float(np.mean(spreads))
+
+
+def _expansion_rows(
+    pairs: Sequence[FlowPair], center: np.ndarray, bottom: float, min_points: int
+) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Per frame, the target and the columns of the shared and the frame's own unknowns."""
+    frames: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+    for pair in pairs:
+        keep = pair.prev[:, 1] < bottom
+        if int(keep.sum()) < min_points:
+            continue
+        p = pair.prev[keep].astype(float) - center
+        d = (pair.next[keep] - pair.prev[keep]).astype(float)
+        target = d[:, 0] * p[:, 1] - d[:, 1] * p[:, 0]
+        shared = np.stack([d[:, 0], -d[:, 1]], axis=1)  # coefficients of fy, fx
+        own = np.stack([p[:, 1], -p[:, 0], np.ones(len(p))], axis=1)  # of r, q, c
+        frames.append((target, shared, own))
+    return frames
 
 
 DISTORTION_STEPS = tuple(round(0.2 * step, 1) for step in range(9))  # 0 to 1.6

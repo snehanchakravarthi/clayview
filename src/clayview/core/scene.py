@@ -20,6 +20,7 @@ from clayview.core.horizon import (
     distort,
     estimate_ground_bottom,
     estimate_visible_bottom,
+    expansion_spread,
     fit_expansion,
     fit_focus_of_expansion,
     fit_radial_distortion,
@@ -134,27 +135,36 @@ def _fit_foe(pairs: Sequence[FlowPair], width: int, height: int) -> FoeFit | Non
 
     Only the FoE is corrected. The camera stays a pinhole whose horizon is the row where the
     vanishing point appears in the image, which is what the near-centre road rows need.
+
+    Two fits compete. The joint fit models each frame's rotation, which a zoomed or turning camera
+    needs: on md_i270 the line fit is 20 px high. But that freedom lets a big, consistent set of bad
+    tracks drag it: overhead suspension cables on sf_bay_bridge and wet branches and raindrops on
+    wintry_wipers moved it 23 and 14 px up and 70 px sideways, onto a fake steady yaw, where lane
+    paint and the line fit agree. Whichever leaves less robust residual wins.
     """
     k = fit_radial_distortion(pairs, width, height)
-    if not k:
-        foe = fit_focus_of_expansion(pairs, width, height)
-        if foe is None:
-            return None
-        # The line fit can't tell turning from travelling; solve again with rotation in the model.
-        ground = estimate_ground_bottom(pairs, foe.y, height) or float(height)
-        return fit_expansion(pairs, width, height, ground) or foe
-
-    # Corrected fits are judged in image pixels, where the frame's bounds apply.
-    straight = undistort_pairs(pairs, width, height, k)
-    lines = _to_image(
-        fit_focus_of_expansion(straight, width, height, check_bounds=False), k, width, height
-    )
+    straight = undistort_pairs(pairs, width, height, k) if k else list(pairs)
+    lines = fit_focus_of_expansion(straight, width, height, check_bounds=False)
     if lines is None:
         return None
-    ground = estimate_ground_bottom(pairs, lines.y, height) or float(height)
+    image_lines = _to_image(lines, k, width, height)
+    if image_lines is None:
+        return None
+    ground = estimate_ground_bottom(pairs, image_lines.y, height) or float(height)
+    # The line fit can't tell turning from travelling; solve again with rotation in the model.
     straight_ground = float(undistort(np.array([width / 2.0, ground]), width, height, k)[1])
     joint = fit_expansion(straight, width, height, straight_ground, check_bounds=False)
-    return _to_image(joint, k, width, height) or lines
+
+    def spread(fit: FoeFit) -> float:
+        value = expansion_spread(straight, fit, width, height, straight_ground)
+        return float("inf") if value is None else value
+
+    candidates = [fit for fit in (joint, lines) if fit is not None]
+    for fit in sorted(candidates, key=spread):
+        image = _to_image(fit, k, width, height)
+        if image is not None:
+            return image
+    return None
 
 
 def _to_image(fit: FoeFit | None, k: float, width: int, height: int) -> FoeFit | None:
