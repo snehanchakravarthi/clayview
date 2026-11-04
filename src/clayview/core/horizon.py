@@ -136,11 +136,14 @@ def fit_focus_of_expansion(
     rotation_px: Sequence[tuple[float, float]] | None = None,
     max_points: int = 40_000,
     iterations: int = 6,
+    check_bounds: bool = True,
 ) -> FoeFit | None:
     """Least-squares intersection of flow lines, with outlier rejection.
 
     `rotation_px` is the image shift (right, down) per pair caused by ego yaw and pitch. Removing it
     keeps turns and bumps from dragging the estimate; frames with strong yaw are skipped outright.
+    `check_bounds` rejects a FoE outside the frame; turn it off for lens-corrected flow, whose
+    FoE has to be mapped back to image pixels before it can be judged.
     """
     points, normals = _flow_lines(pairs, image_height, rotation_px)
     if len(points) < 200:
@@ -167,11 +170,17 @@ def fit_focus_of_expansion(
         if active.sum() < 100:
             return None
 
-    if not (0.2 * image_width <= foe[0] <= 0.8 * image_width):
-        return None
-    if not (0.2 * image_height <= foe[1] <= MAX_FOE_ROW * image_height):
+    if check_bounds and not foe_in_frame(float(foe[0]), float(foe[1]), image_width, image_height):
         return None
     return FoeFit(float(foe[0]), float(foe[1]), int(active.sum()), residual)
+
+
+def foe_in_frame(x: float, y: float, image_width: int, image_height: int) -> bool:
+    """Whether a FoE, in image pixels, is somewhere a forward camera's could be."""
+    return (
+        0.2 * image_width <= x <= 0.8 * image_width
+        and 0.2 * image_height <= y <= MAX_FOE_ROW * image_height
+    )
 
 
 def fit_expansion(
@@ -181,6 +190,7 @@ def fit_expansion(
     bottom: float,
     iterations: int = 6,
     min_points: int = 20,
+    check_bounds: bool = True,
 ) -> FoeFit | None:
     """Focus of expansion solved jointly with each frame's yaw and pitch.
 
@@ -238,12 +248,113 @@ def fit_expansion(
         residual_px = float(np.median(spreads))
 
     x, y = float(foe[1] + center[0]), float(foe[0] + center[1])
-    if not (0.2 * image_width <= x <= 0.8 * image_width):
-        return None
-    if not (0.2 * image_height <= y <= MAX_FOE_ROW * image_height):
+    if check_bounds and not foe_in_frame(x, y, image_width, image_height):
         return None
     points = sum(len(target) for target, _, _ in frames)
     return FoeFit(x, y, points, residual_px)
+
+
+DISTORTION_STEPS = tuple(round(0.2 * step, 1) for step in range(9))  # 0 to 1.6
+
+
+def undistort(points: np.ndarray, image_width: int, image_height: int, k: float) -> np.ndarray:
+    """Radial lens model: p_undistorted = c + (p - c)(1 + k r^2), r over the half-diagonal."""
+    center = np.array([image_width / 2.0, image_height / 2.0])
+    radius = float(np.hypot(*center))
+    offset = (np.asarray(points, dtype=float) - center) / radius
+    return center + offset * radius * (1.0 + k * (offset**2).sum(axis=-1, keepdims=True))
+
+
+def distort(points: np.ndarray, image_width: int, image_height: int, k: float) -> np.ndarray:
+    """Inverse of `undistort`, by fixed-point iteration."""
+    center = np.array([image_width / 2.0, image_height / 2.0])
+    radius = float(np.hypot(*center))
+    target = (np.asarray(points, dtype=float) - center) / radius
+    guess = target.copy()
+    for _ in range(50):
+        guess = target / (1.0 + k * (guess**2).sum(axis=-1, keepdims=True))
+    return center + guess * radius
+
+
+def undistort_pairs(
+    pairs: Sequence[FlowPair], image_width: int, image_height: int, k: float
+) -> list[FlowPair]:
+    return [
+        FlowPair(
+            undistort(pair.prev, image_width, image_height, k),
+            undistort(pair.next, image_width, image_height, k),
+        )
+        for pair in pairs
+    ]
+
+
+def fit_radial_distortion(
+    pairs: Sequence[FlowPair],
+    image_width: int,
+    image_height: int,
+    min_gain: float = 0.25,
+    min_rise: float = 0.15,
+) -> float:
+    """Barrel distortion k, or 0 unless the flow pins it down.
+
+    Through a pinhole every static point flows along a line through the FoE. A wide lens bends
+    those lines, more the further a point is from the image centre, and the least-squares FoE ends
+    up wherever the bent lines from the corners cross. On a tilted-up action camera in New Zealand
+    the FoE came out 50 px below the vanishing point of the lane lines; that left no road between
+    the horizon and the bottom of the frame, so ego speed read zero for the whole clip.
+
+    Each k is scored by how far each flow vector points off the line from the FoE, measured in the
+    original pixels so tracking noise weighs the same at every k. Nearly every clip scores a little
+    better as k grows, whether or not its lens is distorted, so k is taken only when the score has
+    a clear minimum: well below k = 0 and well below the largest k tried. Otherwise the pinhole
+    calibration stands unchanged. A k whose FoE would sit outside the frame can't be the minimum,
+    and if that's k = 0 the pinhole fit has already failed, which only strengthens the case.
+    """
+    scores = distortion_scores(pairs, image_width, image_height)
+    if scores is None:
+        return 0.0
+    best = int(np.argmin(scores))
+    if best == 0 or scores[best] > (1.0 - min_gain) * scores[0]:
+        return 0.0
+    if scores[-1] < (1.0 + min_rise) * scores[best]:
+        return 0.0
+    return DISTORTION_STEPS[best]
+
+
+def distortion_scores(
+    pairs: Sequence[FlowPair], image_width: int, image_height: int
+) -> list[float] | None:
+    """For each k in DISTORTION_STEPS, the median pixel distance flow points off its FoE line.
+
+    A k whose FoE, mapped back to image pixels, falls outside the frame scores infinity. The FoE is
+    judged in image pixels because that's where it has to land: on a camera tilted far enough, the
+    bent pinhole fit falls below the frame while the corrected one is well inside it.
+    """
+    scores: list[float] = []
+    for k in DISTORTION_STEPS:
+        straight = undistort_pairs(pairs, image_width, image_height, k) if k else list(pairs)
+        foe = fit_focus_of_expansion(straight, image_width, image_height, check_bounds=False)
+        if foe is None:
+            return None  # too little flow to fit at all, whatever the lens
+        x, y = distort(np.array([foe.x, foe.y]), image_width, image_height, k)
+        if not foe_in_frame(float(x), float(y), image_width, image_height):
+            scores.append(float("inf"))
+            continue
+        errors: list[np.ndarray] = []
+        for original, pair in zip(pairs, straight, strict=True):
+            length = np.hypot(*(original.next - original.prev).T)
+            usable = length > MIN_FLOW_PX
+            if not usable.any():
+                continue
+            flow = (pair.next - pair.prev)[usable]
+            ray = (pair.prev + pair.next)[usable] / 2.0 - (foe.x, foe.y)
+            cross = np.abs(flow[:, 0] * ray[:, 1] - flow[:, 1] * ray[:, 0])
+            norms = np.hypot(*flow.T) * np.hypot(*ray.T)
+            errors.append(length[usable] * cross / np.maximum(norms, 1e-9))
+        if not errors:
+            return None
+        scores.append(float(np.median(np.concatenate(errors))))
+    return scores
 
 
 def _flow_lines(

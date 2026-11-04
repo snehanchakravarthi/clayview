@@ -16,11 +16,17 @@ from clayview.core.camera import (
 from clayview.core.ego import estimate_ego_series
 from clayview.core.heading import EgoPath
 from clayview.core.horizon import (
+    FoeFit,
+    distort,
     estimate_ground_bottom,
     estimate_visible_bottom,
     fit_expansion,
     fit_focus_of_expansion,
+    fit_radial_distortion,
     fit_vehicle_horizon,
+    foe_in_frame,
+    undistort,
+    undistort_pairs,
     vehicle_height_for_horizon,
     vehicle_samples,
 )
@@ -80,11 +86,7 @@ def calibrate(
 ) -> Calibration:
     """Work out one shot's camera, preferring what the user pinned, then the clip, then defaults."""
     width, height = video.width, video.height
-    foe = fit_focus_of_expansion(pairs, width, height)
-    if foe is not None:
-        # The line fit can't tell turning from travelling; solve again with rotation in the model.
-        ground = estimate_ground_bottom(pairs, foe.y, height) or float(height)
-        foe = fit_expansion(pairs, width, height, ground) or foe
+    foe = _fit_foe(pairs, width, height)
 
     samples = vehicle_samples(detections, width, height)
     vehicles = fit_vehicle_horizon(samples, height)
@@ -123,6 +125,44 @@ def calibrate(
         visible_bottom=bottom,
     )
     return Calibration(camera, horizon_source, height_source)
+
+
+def _fit_foe(pairs: Sequence[FlowPair], width: int, height: int) -> FoeFit | None:
+    """Focus of expansion in image pixels, fitted on lens-corrected flow when the lens is wide.
+
+    Only the FoE is corrected. The camera stays a pinhole whose horizon is the row where the
+    vanishing point appears in the image, which is what the near-centre road rows need.
+    """
+    k = fit_radial_distortion(pairs, width, height)
+    if not k:
+        foe = fit_focus_of_expansion(pairs, width, height)
+        if foe is None:
+            return None
+        # The line fit can't tell turning from travelling; solve again with rotation in the model.
+        ground = estimate_ground_bottom(pairs, foe.y, height) or float(height)
+        return fit_expansion(pairs, width, height, ground) or foe
+
+    # Corrected fits are judged in image pixels, where the frame's bounds apply.
+    straight = undistort_pairs(pairs, width, height, k)
+    lines = _to_image(
+        fit_focus_of_expansion(straight, width, height, check_bounds=False), k, width, height
+    )
+    if lines is None:
+        return None
+    ground = estimate_ground_bottom(pairs, lines.y, height) or float(height)
+    straight_ground = float(undistort(np.array([width / 2.0, ground]), width, height, k)[1])
+    joint = fit_expansion(straight, width, height, straight_ground, check_bounds=False)
+    return _to_image(joint, k, width, height) or lines
+
+
+def _to_image(fit: FoeFit | None, k: float, width: int, height: int) -> FoeFit | None:
+    """A FoE fitted on lens-corrected flow, back in image pixels, or None if it leaves the frame."""
+    if fit is None:
+        return None
+    x, y = distort(np.array([fit.x, fit.y]), width, height, k)
+    if not foe_in_frame(float(x), float(y), width, height):
+        return None
+    return FoeFit(float(x), float(y), fit.points, fit.residual_px)
 
 
 def build_scene(
