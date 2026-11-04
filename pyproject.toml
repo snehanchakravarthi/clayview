@@ -3,6 +3,7 @@ name = "clayview"
 version = "0.1.0"
 description = "Tesla-style clay 3D view of surrounding traffic, from a recorded dashcam clip."
 readme = "README.md"
+license = "AGPL-3.0-only"
 keywords = ["dashcam", "computer-vision", "yolo", "object-tracking", "3d-visualization", "threejs"]
 requires-python = ">=3.12,<3.13"
 dependencies = [

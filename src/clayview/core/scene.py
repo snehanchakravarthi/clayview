@@ -31,7 +31,7 @@ from clayview.core.horizon import (
     vehicle_samples,
 )
 from clayview.core.mount import separate_mount
-from clayview.core.projection import ProjectionConfig
+from clayview.core.projection import ProjectionConfig, box_pad_px
 from clayview.core.tracks import Segment, TrackConfig, Views, WorldTrack, build_tracks
 from clayview.core.types import Detection, EgoStep, FlowPair
 
@@ -84,12 +84,13 @@ def calibrate(
     detections: Sequence[Detection],
     video: VideoInfo,
     options: CameraOptions,
+    box_pad: float = 0.0,
 ) -> Calibration:
     """Work out one shot's camera, preferring what the user pinned, then the clip, then defaults."""
     width, height = video.width, video.height
     foe = _fit_foe(pairs, width, height)
 
-    samples = vehicle_samples(detections, width, height)
+    samples = vehicle_samples(detections, width, height, box_pad_px=box_pad)
     vehicles = fit_vehicle_horizon(samples, height)
 
     horizon_y: float | None
@@ -124,6 +125,7 @@ def calibrate(
         horizon_y=resolved_horizon,
         center_x=foe.x if foe is not None else None,
         visible_bottom=bottom,
+        box_pad_px=box_pad,
     )
     return Calibration(camera, horizon_source, height_source)
 
@@ -180,6 +182,7 @@ def build_scene(
     opts = options or CameraOptions()
     frame_count = len(raw.times)
     boundaries = [0, *sorted(raw.cuts), frame_count]
+    box_pad = box_pad_px(raw.video.width, raw.video.height, raw.model.get("imgsz"))
 
     segments: list[Segment] = []
     calibrations: list[Calibration] = []
@@ -193,7 +196,7 @@ def build_scene(
             continue
         pairs = raw.flow[start : max(end - 1, start)]
         shot_detections = [d for d in raw.detections if start <= d.frame < end]
-        calibration = calibrate(pairs, shot_detections, raw.video, opts)
+        calibration = calibrate(pairs, shot_detections, raw.video, opts, box_pad)
         calibrations.append(calibration)
         segments.append(Segment(len(segments), start, end, calibration.camera))
 
