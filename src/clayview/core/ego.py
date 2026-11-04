@@ -25,6 +25,8 @@ class EgoConfig:
     median_half_s: float = 0.1
     smooth_s: float = 0.077  # time constant of the low-pass
     max_speed_mps: float = 55.0
+    # Points this close to the FoE say little about rotation; the floor keeps them from dominating.
+    min_ray_px: float = 20.0
 
 
 def yaw_step(pair: FlowPair, camera: Camera, config: EgoConfig | None = None) -> float | None:
@@ -47,6 +49,15 @@ def rotation_shift(
     which is linear in r and q and needs no depth. The older estimate, the median sideways shift of
     points near the horizon, took roadside trees and walls drifting outward for a turn.
 
+    Rolling by w turns every point about the FoE, adding w * |p - FoE|^2 to the right-hand side.
+    Leaving roll out was the main source of false turning: on comma2k19 the camera rolls three
+    times as much as it yaws, from frame to frame, and road points below the FoE see a roll as a
+    sideways shift. Without the roll term, measured turning was twice the truth.
+
+    Each point's equation is divided by |p - FoE|, so its residual is the flow across the ray in
+    pixels. A tracking error is about the same number of pixels anywhere in the frame; unscaled,
+    the points furthest from the FoE carried most of the weight and their noise.
+
     The FoE has to be right to a pixel or two: on comma2k19, each pixel of error in its column
     adds 2.7 degrees a minute of false turning, in proportion to speed.
     """
@@ -58,10 +69,11 @@ def rotation_shift(
     d = (pair.next[keep] - pair.prev[keep]).astype(float)
     across = p[:, 1] - camera.horizon
     down = -(p[:, 0] - camera.cx)
-    target = d[:, 0] * across + d[:, 1] * down
-    design = np.stack([across, down], axis=1)
+    radius = np.maximum(np.hypot(across, down), cfg.min_ray_px)
+    target = (d[:, 0] * across + d[:, 1] * down) / radius
+    design = np.stack([across, down, -radius * radius], axis=1) / radius[:, None]
     weights = np.ones(len(p))
-    shift = np.zeros(2)
+    shift = np.zeros(3)
     for _ in range(5):
         # Iteratively reweighted: moving cars and bad tracks are outliers, not noise.
         scale = np.sqrt(weights)[:, None]
