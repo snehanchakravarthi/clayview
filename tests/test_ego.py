@@ -63,6 +63,38 @@ def test_roadside_flow_is_not_a_turn() -> None:
     assert yaw_step(turning, CAMERA) == pytest.approx(6.0 / CAMERA.focal_px, rel=0.02)
 
 
+def rolled(pair: FlowPair, roll_rad: float) -> FlowPair:
+    """The pair with the camera also rolling about the focus of expansion."""
+    centre = np.array([CAMERA.cx, CAMERA.horizon])
+    cos, sin = np.cos(roll_rad), np.sin(roll_rad)
+    offset = pair.next - centre
+    turned = np.stack(
+        [cos * offset[:, 0] - sin * offset[:, 1], sin * offset[:, 0] + cos * offset[:, 1]], 1
+    )
+    return FlowPair(pair.prev, (turned + centre).astype(np.float32))
+
+
+def test_body_roll_is_not_a_turn() -> None:
+    """On comma2k19 the camera rolls three times as much as it yaws from frame to frame. Road points
+    below the FoE see a roll as a sideways shift, and the yaw model had no roll term: it turned 19
+    degrees a minute against a true 10, with a correlation of 0.30 to the gyro."""
+    pair = ground_pair(1.0)
+    for roll_deg in (-0.1, 0.1):
+        assert yaw_step(rolled(pair, np.radians(roll_deg)), CAMERA) == pytest.approx(0.0, abs=2e-5)
+    turning = FlowPair(pair.prev, pair.next + np.array([-3.0, 0.0], np.float32))
+    turn = yaw_step(rolled(turning, np.radians(0.1)), CAMERA)
+    assert turn == pytest.approx(3.0 / CAMERA.focal_px, rel=0.05)
+
+
+def test_points_near_the_foe_still_see_a_turn() -> None:
+    """The floor on a point's distance from the FoE only sets its weight. Used in the roll term too,
+    it read a 3 px turn of points within 20 px of the FoE as 0.002 px."""
+    x = CAMERA.cx + np.linspace(-14.0, 14.0, 8)
+    points = np.stack([x, np.full(8, CAMERA.horizon + 10.0)], axis=1).astype(np.float32)
+    turning = FlowPair(points, points + np.array([-3.0, 0.0], np.float32))
+    assert yaw_step(turning, CAMERA) == pytest.approx(3.0 / CAMERA.focal_px, rel=0.02)
+
+
 def test_series_is_the_same_in_seconds_at_any_frame_rate() -> None:
     """Smoothing windows were in frames, so a 60 fps clip got half the smoothing of a 30 fps one."""
     results = []
