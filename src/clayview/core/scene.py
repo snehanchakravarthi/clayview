@@ -16,11 +16,16 @@ from clayview.core.camera import (
 from clayview.core.ego import estimate_ego_series
 from clayview.core.heading import EgoPath
 from clayview.core.horizon import (
+    FoeFit,
+    distort,
     estimate_ground_bottom,
     estimate_visible_bottom,
     fit_expansion,
     fit_focus_of_expansion,
+    fit_radial_distortion,
     fit_vehicle_horizon,
+    undistort,
+    undistort_pairs,
     vehicle_height_for_horizon,
     vehicle_samples,
 )
@@ -80,11 +85,7 @@ def calibrate(
 ) -> Calibration:
     """Work out one shot's camera, preferring what the user pinned, then the clip, then defaults."""
     width, height = video.width, video.height
-    foe = fit_focus_of_expansion(pairs, width, height)
-    if foe is not None:
-        # The line fit can't tell turning from travelling; solve again with rotation in the model.
-        ground = estimate_ground_bottom(pairs, foe.y, height) or float(height)
-        foe = fit_expansion(pairs, width, height, ground) or foe
+    foe = _fit_foe(pairs, width, height)
 
     samples = vehicle_samples(detections, width, height)
     vehicles = fit_vehicle_horizon(samples, height)
@@ -123,6 +124,29 @@ def calibrate(
         visible_bottom=bottom,
     )
     return Calibration(camera, horizon_source, height_source)
+
+
+def _fit_foe(pairs: Sequence[FlowPair], width: int, height: int) -> FoeFit | None:
+    """Focus of expansion in image pixels, fitted on lens-corrected flow when the lens is wide.
+
+    Only the FoE is corrected. The camera stays a pinhole whose horizon is the row where the
+    vanishing point appears in the image, which is what the near-centre road rows need.
+    """
+    k = fit_radial_distortion(pairs, width, height)
+    straight = undistort_pairs(pairs, width, height, k) if k else pairs
+    foe = fit_focus_of_expansion(straight, width, height)
+    if foe is None:
+        return None
+    image_foe = distort(np.array([foe.x, foe.y]), width, height, k) if k else (foe.x, foe.y)
+    # The line fit can't tell turning from travelling; solve again with rotation in the model.
+    ground = estimate_ground_bottom(pairs, float(image_foe[1]), height) or float(height)
+    if k:
+        ground = float(undistort(np.array([width / 2.0, ground]), width, height, k)[1])
+    foe = fit_expansion(straight, width, height, ground) or foe
+    if not k:
+        return foe
+    x, y = distort(np.array([foe.x, foe.y]), width, height, k)
+    return FoeFit(float(x), float(y), foe.points, foe.residual_px)
 
 
 def build_scene(

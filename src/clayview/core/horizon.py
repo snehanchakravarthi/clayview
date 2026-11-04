@@ -246,6 +246,99 @@ def fit_expansion(
     return FoeFit(x, y, points, residual_px)
 
 
+DISTORTION_STEPS = tuple(round(0.2 * step, 1) for step in range(9))  # 0 to 1.6
+
+
+def undistort(points: np.ndarray, image_width: int, image_height: int, k: float) -> np.ndarray:
+    """Radial lens model: p_undistorted = c + (p - c)(1 + k r^2), r over the half-diagonal."""
+    center = np.array([image_width / 2.0, image_height / 2.0])
+    radius = float(np.hypot(*center))
+    offset = (np.asarray(points, dtype=float) - center) / radius
+    return center + offset * radius * (1.0 + k * (offset**2).sum(axis=-1, keepdims=True))
+
+
+def distort(points: np.ndarray, image_width: int, image_height: int, k: float) -> np.ndarray:
+    """Inverse of `undistort`, by fixed-point iteration."""
+    center = np.array([image_width / 2.0, image_height / 2.0])
+    radius = float(np.hypot(*center))
+    target = (np.asarray(points, dtype=float) - center) / radius
+    guess = target.copy()
+    for _ in range(50):
+        guess = target / (1.0 + k * (guess**2).sum(axis=-1, keepdims=True))
+    return center + guess * radius
+
+
+def undistort_pairs(
+    pairs: Sequence[FlowPair], image_width: int, image_height: int, k: float
+) -> list[FlowPair]:
+    return [
+        FlowPair(
+            undistort(pair.prev, image_width, image_height, k),
+            undistort(pair.next, image_width, image_height, k),
+        )
+        for pair in pairs
+    ]
+
+
+def fit_radial_distortion(
+    pairs: Sequence[FlowPair],
+    image_width: int,
+    image_height: int,
+    min_gain: float = 0.25,
+    min_rise: float = 0.15,
+) -> float:
+    """Barrel distortion k, or 0 unless the flow pins it down.
+
+    Through a pinhole every static point flows along a line through the FoE. A wide lens bends
+    those lines, more the further a point is from the image centre, and the least-squares FoE ends
+    up wherever the bent lines from the corners cross. On a tilted-up action camera in New Zealand
+    the FoE came out 50 px below the vanishing point of the lane lines; that left no road between
+    the horizon and the bottom of the frame, so ego speed read zero for the whole clip.
+
+    Each k is scored by how far each flow vector points off the line from the FoE, measured in the
+    original pixels so tracking noise weighs the same at every k. Nearly every clip scores a little
+    better as k grows, whether or not its lens is distorted, so k is taken only when the score has
+    a clear minimum: well below k = 0 and well below the largest k tried. Otherwise the pinhole
+    calibration stands unchanged.
+    """
+    scores = distortion_scores(pairs, image_width, image_height)
+    if scores is None:
+        return 0.0
+    best = int(np.argmin(scores))
+    if best == 0 or scores[best] > (1.0 - min_gain) * scores[0]:
+        return 0.0
+    if scores[-1] < (1.0 + min_rise) * scores[best]:
+        return 0.0
+    return DISTORTION_STEPS[best]
+
+
+def distortion_scores(
+    pairs: Sequence[FlowPair], image_width: int, image_height: int
+) -> list[float] | None:
+    """For each k in DISTORTION_STEPS, the median pixel distance flow points off its FoE line."""
+    scores: list[float] = []
+    for k in DISTORTION_STEPS:
+        straight = undistort_pairs(pairs, image_width, image_height, k) if k else list(pairs)
+        foe = fit_focus_of_expansion(straight, image_width, image_height)
+        if foe is None:
+            return None
+        errors: list[np.ndarray] = []
+        for original, pair in zip(pairs, straight, strict=True):
+            length = np.hypot(*(original.next - original.prev).T)
+            usable = length > MIN_FLOW_PX
+            if not usable.any():
+                continue
+            flow = (pair.next - pair.prev)[usable]
+            ray = (pair.prev + pair.next)[usable] / 2.0 - (foe.x, foe.y)
+            cross = np.abs(flow[:, 0] * ray[:, 1] - flow[:, 1] * ray[:, 0])
+            norms = np.hypot(*flow.T) * np.hypot(*ray.T)
+            errors.append(length[usable] * cross / np.maximum(norms, 1e-9))
+        if not errors:
+            return None
+        scores.append(float(np.median(np.concatenate(errors))))
+    return scores
+
+
 def _flow_lines(
     pairs: Sequence[FlowPair],
     image_height: int,
