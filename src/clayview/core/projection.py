@@ -8,9 +8,11 @@ Two independent distance estimates are fused by inverse variance:
   it is the only option when the bottom of the box is cut off.
 
 Detection boxes are drawn a few pixels outside the object, a fixed amount in the detector's own
-input grid. Against comma2k19's radar, YOLO's car boxes were 4 to 5 px wider and taller than the
-car at every range from 25 to 70 m, while the bottom edge sat on the tyres. At 60 m a car is 30 px
-wide, so the padding alone read 13% short. It is taken off before a box's size means anything.
+input grid. Against comma2k19's radar, YOLO's car boxes were 4 px wider and 4 px taller than the
+car at every range from 25 to 70 m. At 60 m a car is 30 px wide, so the padding alone read 13%
+short. Half of it is under the tyres: with the bottom taken as the contact, the camera height that
+radar implies is the one ground flow and CAN speed imply, 1.45 m against 1.59 m. The padding is
+taken off a box's size, and half of it off its bottom, before either means anything.
 """
 
 from __future__ import annotations
@@ -136,9 +138,10 @@ def _ground_estimate(
     box: Box, camera: Camera, cut_bottom: bool, cfg: ProjectionConfig
 ) -> tuple[float, float] | None:
     """(distance, sigma) from the ground contact, or None if there isn't a usable one."""
-    if cut_bottom or box.y2 - camera.horizon < cfg.min_ground_below_horizon_px:
+    contact = box.y2 - camera.box_pad_px / 2.0  # the padding is split between top and bottom
+    if cut_bottom or contact - camera.horizon < cfg.min_ground_below_horizon_px:
         return None
-    distance = camera.ground_distance(box.y2)
+    distance = camera.ground_distance(contact)
     if distance is None:
         return None
     sigma_px = cfg.sigma_bottom_px + cfg.sigma_bottom_box_fraction * box.height

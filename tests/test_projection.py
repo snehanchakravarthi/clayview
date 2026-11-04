@@ -125,41 +125,48 @@ def test_footprint_extent_is_half_length_end_on_and_half_width_side_on() -> None
 
 # comma2k19, Example_1: median YOLO boxes of rear-on lead cars by CAN radar range. Columns are radar
 # range in metres, box width, box height and box bottom in pixels. The camera is 1164x874 with a
-# 910 px focal length, seen through a 960 px detector; the horizon is 378 px.
-COMMA_LEADS = [
+# 910 px focal length, seen through a 960 px detector; the horizon is 378 px and the camera height
+# the pipeline now fits, 1.43 m, is the one road flow implies against CAN speed.
+COMMA_NEAR_LEADS = [
     (29.6, 56.8, 48.3, 423.5),
     (37.7, 45.6, 38.4, 412.4),
-    (63.3, 29.4, 25.3, 398.5),
 ]
-# The radar is in the front bumper, about 1.5 m ahead of a RAV4's windshield camera.
-COMMA_RADAR_AHEAD_M = 1.5
+COMMA_FAR_LEAD = (63.3, 29.4, 25.3)  # its bottom row is within a pixel of the horizon's noise
+# openpilot's RADAR_TO_CAMERA: the radar is 1.52 m ahead of the camera.
+COMMA_RADAR_AHEAD_M = 1.52
+COMMA_PAD = 1164 / 960 * DETECTOR_BOX_PAD_PX
 
 
-def _comma_camera(pad: float, height_m: float = 1.54) -> Camera:
+def _comma_camera(pad: float, height_m: float = 1.43) -> Camera:
     return Camera(1164, 874, height_m=height_m, vfov_deg=51.3, horizon_y=378.3, box_pad_px=pad)
 
 
 def test_box_padding_in_the_detector_grid_scales_with_the_frame() -> None:
-    assert box_pad_px(1164, 874, 960) == pytest.approx(DETECTOR_BOX_PAD_PX * 1164 / 960)
+    assert box_pad_px(1164, 874, 960) == pytest.approx(COMMA_PAD)
     assert box_pad_px(1080, 1920, 960) == pytest.approx(2.0 * DETECTOR_BOX_PAD_PX)
     assert box_pad_px(1164, 874, None) == 0.0
 
 
-@pytest.mark.parametrize(("radar", "width", "height", "bottom"), COMMA_LEADS)
-def test_comma2k19_leads_match_radar(
+@pytest.mark.parametrize(("radar", "width", "height", "bottom"), COMMA_NEAR_LEADS)
+def test_comma2k19_near_leads_match_radar(
     radar: float, width: float, height: float, bottom: float
 ) -> None:
     box = Box(582.0 - width / 2.0, bottom - height, 582.0 + width / 2.0, bottom)
-    pad = box_pad_px(1164, 874, 960)
+    result = project_box(box, "car", _comma_camera(COMMA_PAD))
+    assert result is not None
+    assert result.y == pytest.approx(radar + COMMA_RADAR_AHEAD_M, rel=0.04)
+
+
+def _far_lead_size_range(pad: float) -> float:
+    # Cut by the frame bottom, so the box's width is all there is to go on.
+    _, width, height = COMMA_FAR_LEAD
+    box = Box(582.0 - width / 2.0, 874.0 - height, 582.0 + width / 2.0, 874.0)
     result = project_box(box, "car", _comma_camera(pad))
-    assert result is not None
-    assert result.y == pytest.approx(radar + COMMA_RADAR_AHEAD_M, rel=0.06)
+    assert result is not None and FLAG_NO_GROUND in result.flags
+    return result.y
 
 
-def test_unpadded_boxes_put_far_comma2k19_leads_short() -> None:
-    # The old pipeline: padding left in, and the 1.37 m camera height it calibrated from them.
-    radar, width, height, bottom = COMMA_LEADS[-1]
-    box = Box(582.0 - width / 2.0, bottom - height, 582.0 + width / 2.0, bottom)
-    result = project_box(box, "car", _comma_camera(0.0, height_m=1.37))
-    assert result is not None
-    assert result.y < 0.92 * (radar + COMMA_RADAR_AHEAD_M)
+def test_comma2k19_far_lead_matches_radar_once_the_padding_is_off() -> None:
+    target = COMMA_FAR_LEAD[0] + COMMA_RADAR_AHEAD_M
+    assert _far_lead_size_range(COMMA_PAD) == pytest.approx(target, rel=0.03)
+    assert _far_lead_size_range(0.0) < 0.9 * target

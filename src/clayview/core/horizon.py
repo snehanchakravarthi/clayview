@@ -53,7 +53,9 @@ def vehicle_samples(
     """(n, 2) of (bottom_y, width_px) from clean, truly rear-on cars, less the box padding.
 
     The padding matters: the height fit divides the prior car width by width over rows below the
-    horizon, and most samples are far, small cars. Left in, it read comma2k19's camera 6% low.
+    horizon, and most samples are far, small cars. The width padding read comma2k19's camera low,
+    the half under the tyres read it high; with both left in it came out 1.37 m, and with only the
+    width taken off, 1.54 m and ego speed 7% fast. Both off, it agrees with the road flow: 1.43 m.
 
     The aspect limit is tight on purpose. On a 2-minute urban clip the height implied by a box fell
     steadily with its aspect, from about 1.15 m at rear-on 1.05 to 0.57 m side-on, because any
@@ -75,7 +77,7 @@ def vehicle_samples(
         center_offset = abs((box.x1 + box.x2) / 2.0 - image_width / 2.0) / image_width
         if not 0.9 <= aspect <= 1.22 or center_offset > 0.3:
             continue
-        samples.append((box.y2, box.width - box_pad_px))
+        samples.append((box.y2 - box_pad_px / 2.0, box.width - box_pad_px))
     return np.array(samples, dtype=float).reshape(-1, 2)
 
 
