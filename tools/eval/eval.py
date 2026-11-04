@@ -53,6 +53,10 @@ COMMA_FILES = [
     "processed_log/CAN/radar/value",
 ]
 COMMA_FOCAL_PX = 910.0
+# The radar measures from the front bumper; the scene measures from the camera. openpilot's
+# RADAR_TO_CAMERA, selfdrive/config.py at v0.7 and at 2153d87: "RADAR is ~ 1.5m ahead from center
+# of mesh frame", the mesh frame being the comma device's camera.
+COMMA_RADAR_TO_CAMERA_M = 1.52
 MOVING_KMH = 5.0
 
 
@@ -404,7 +408,8 @@ def _radar(
                 if error < np.radians(1.5) and (best is None or error < best[0]):
                     best = (error, distance)
             if best is not None:
-                pairs.append((obj["y"] - 2.25, best[1]))  # scene y is the centre of a 4.5 m car
+                # Scene y is a 4.5 m car's centre from the camera; radar range is from the bumper.
+                pairs.append((obj["y"] - 2.25, best[1] + COMMA_RADAR_TO_CAMERA_M))
     pairs_array = np.array(pairs).reshape(-1, 2)
     out = {}
     for low, high in ((20, 40), (40, 70)):
