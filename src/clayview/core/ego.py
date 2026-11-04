@@ -22,6 +22,11 @@ class EgoConfig:
     pool_s: float = 0.13  # road points are pooled over this long each side
     static_speed_mps: float = 0.8  # below this, a cluster of points is not moving
     min_road_share: float = 0.2  # the moving cluster must be at least this much of the sample
+    # A road point's flow, once yaw and pitch are removed, points straight away from the FoE. Flow
+    # off that line by more than about 32 degrees is an edge or a shadow, not the road; below
+    # `radial_min_px` its direction is tracker noise, so it's kept.
+    radial_min_cos: float = 0.85
+    radial_min_px: float = 1.0
     median_half_s: float = 0.1
     smooth_s: float = 0.077  # time constant of the low-pass
     max_speed_mps: float = 55.0
@@ -95,15 +100,22 @@ def road_speeds(
     """Forward speed in m/s implied by each flow point on the road surface.
 
     Uses rows only: at dashcam pitch, yaw moves points sideways and barely changes their row.
+
+    Points whose flow doesn't run away from the FoE are dropped first. Lane lines and road edges
+    run towards the FoE too, so the road slides along them and the tracker sees only the sideways
+    part: their rows stand still. Shadows of the cars ahead keep pace with ego. On I-270 these were
+    up to half the road points and read 0.85 of the lane-dash speed; every row band of the rest
+    read 1.0.
     """
     cfg = config or EgoConfig()
     if len(pair.prev) == 0:
         return np.empty(0)
+    radial = _radial(pair, camera, cfg)
     focal = camera.focal_px
     top = camera.horizon + cfg.near_band_fraction * camera.image_height
     rows_prev = pair.prev[:, 1].astype(float)
     rows_next = pair.next[:, 1].astype(float)
-    on_road = (rows_prev > top) & (rows_next > top)
+    on_road = radial & (rows_prev > top) & (rows_next > top)
     on_road &= (rows_prev < camera.bottom) & (rows_next < camera.bottom)
     if not on_road.any():
         return np.empty(0)
@@ -114,6 +126,19 @@ def road_speeds(
     x_prev = (pair.prev[on_road, 0] - camera.cx) * y_prev / focal
     near = np.abs(x_prev) < cfg.max_ground_lateral_m
     return (y_prev[near] - y_next[near]) / max(dt, 1e-3)
+
+
+def _radial(pair: FlowPair, camera: Camera, cfg: EgoConfig) -> np.ndarray:
+    """Mask of points whose flow, less ego's rotation, points away from the FoE or is too small to
+    have a direction."""
+    shift = rotation_shift(pair, camera, cfg)
+    flow = (pair.next - pair.prev).astype(float) - (shift or (0.0, 0.0))
+    outward = pair.prev.astype(float) - np.array([camera.cx, camera.horizon])
+    length = np.hypot(flow[:, 0], flow[:, 1])
+    cos = np.einsum("ij,ij->i", flow, outward) / np.maximum(
+        length * np.hypot(outward[:, 0], outward[:, 1]), 1e-9
+    )
+    return (length < cfg.radial_min_px) | (cos >= cfg.radial_min_cos)
 
 
 def speed_from_points(speeds: np.ndarray, config: EgoConfig | None = None) -> float | None:
