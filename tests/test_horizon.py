@@ -49,7 +49,17 @@ def test_vehicle_fit_needs_a_spread_of_rows() -> None:
 
 def test_height_from_widths_with_a_known_horizon() -> None:
     samples = width_samples(620.0, 1.15, 100)
-    assert vehicle_height_for_horizon(samples, 620.0) == pytest.approx(1.15, abs=0.03)
+    assert vehicle_height_for_horizon(samples, 620.0, 1080) == pytest.approx(1.15, abs=0.03)
+
+
+def test_height_needs_cars_well_under_the_horizon() -> None:
+    """christchurch_left: 15 cars a median 16 px under a 720 px frame's horizon read a 0.84 m
+    camera. That close, a horizon a few pixels off swings the height by tens of percent."""
+    rng = np.random.default_rng(1)
+    rows = 600.0 + rng.uniform(9.0, 24.0, 40)
+    close = np.stack([rows, (1.8 / 1.3) * (rows - 600.0)], axis=1)
+    assert vehicle_height_for_horizon(close, 600.0, 720) is None
+    assert vehicle_height_for_horizon(close, 600.0, 360) == pytest.approx(1.3, abs=0.01)
 
 
 def test_vehicle_samples_keep_rear_on_cars_only() -> None:
@@ -77,9 +87,9 @@ def test_height_fit_takes_the_box_padding_off() -> None:
     ]
     padded = vehicle_samples(detections, 1920, 1080)
     unpadded = vehicle_samples(detections, 1920, 1080, box_pad_px=4.0)
-    assert vehicle_height_for_horizon(padded, 378.0) == pytest.approx(1.5, abs=0.15)
-    assert vehicle_height_for_horizon(padded, 378.0) != pytest.approx(1.5, abs=0.03)
-    assert vehicle_height_for_horizon(unpadded, 378.0) == pytest.approx(1.5, abs=0.01)
+    assert vehicle_height_for_horizon(padded, 378.0, 1080) == pytest.approx(1.5, abs=0.15)
+    assert vehicle_height_for_horizon(padded, 378.0, 1080) != pytest.approx(1.5, abs=0.03)
+    assert vehicle_height_for_horizon(unpadded, 378.0, 1080) == pytest.approx(1.5, abs=0.01)
 
 
 def expansion_pairs(foe: tuple[float, float], frames: int = 12, seed: int = 1) -> list[FlowPair]:

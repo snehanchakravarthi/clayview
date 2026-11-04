@@ -113,7 +113,7 @@ def calibrate(
     if options.height_m is not None:
         height_m, height_source = options.height_m, "flag"
     else:
-        fitted = vehicle_height_for_horizon(samples, resolved_horizon)
+        fitted = vehicle_height_for_horizon(samples, resolved_horizon, height)
         if fitted is not None:
             height_m, height_source = fitted, "vehicles"
 

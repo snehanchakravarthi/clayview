@@ -89,6 +89,14 @@ def test_rain_and_branches_do_not_lift_the_horizon() -> None:
     assert 540.0 <= center <= 580.0
 
 
+def test_cars_hugging_the_horizon_do_not_set_the_height() -> None:
+    """christchurch_left: with the horizon on the lane paint, its few usable cars sit 16 px under
+    it and read a 0.84 m camera."""
+    horizon, _, _, source = cached_calibration("christchurch_left")
+    assert 595.0 <= horizon <= 615.0
+    assert source == "default"
+
+
 def test_comma_horizon_and_height_hold() -> None:
     """comma2k19's speed and radar agree with its calibration; the FoE choice mustn't move it."""
     horizon, _, height, _ = cached_calibration("comma2k19")

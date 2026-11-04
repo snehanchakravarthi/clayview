@@ -24,6 +24,8 @@ from clayview.core.types import Detection, FlowPair
 MIN_FLOW_PX = 1.2
 # A camera tilted up puts the horizon low: 0.88 of the height on a New Zealand highway clip.
 MAX_FOE_ROW = 0.95
+# The typical car used for height must sit at least this far under the horizon, of the image height.
+MIN_CAR_DEPTH = 0.03
 
 
 @dataclass(frozen=True)
@@ -122,13 +124,23 @@ def fit_vehicle_horizon(
     return VehicleFit(horizon, height, len(samples), float(best.mean()))
 
 
-def vehicle_height_for_horizon(samples: np.ndarray, horizon_y: float) -> float | None:
-    """Camera height implied by car widths once the horizon is known."""
+def vehicle_height_for_horizon(
+    samples: np.ndarray, horizon_y: float, image_height: int
+) -> float | None:
+    """Camera height implied by car widths once the horizon is known.
+
+    None if the typical car sits too close under the horizon, where a horizon a few pixels off
+    swings the height by tens of percent. On christchurch_left the lane paint put the horizon at
+    603 and the half dozen usable cars, 16 px under it, read a 0.84 m camera; comma2k19's, twice as
+    far down, agree with its radar.
+    """
     if len(samples) < 12:
         return None
     below = samples[:, 0] - horizon_y
     usable = below > 8.0
     if int(usable.sum()) < 12:
+        return None
+    if float(np.median(below[usable])) < MIN_CAR_DEPTH * image_height:
         return None
     slope = float(np.median(samples[usable, 1] / below[usable]))
     height = CLASS_PRIORS["car"].width_m / slope
