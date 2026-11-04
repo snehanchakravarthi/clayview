@@ -69,9 +69,11 @@ def rotation_shift(
     d = (pair.next[keep] - pair.prev[keep]).astype(float)
     across = p[:, 1] - camera.horizon
     down = -(p[:, 0] - camera.cx)
-    radius = np.maximum(np.hypot(across, down), cfg.min_ray_px)
+    # The floor only sets a point's weight; the roll term needs its true distance.
+    squared = across * across + down * down
+    radius = np.maximum(np.sqrt(squared), cfg.min_ray_px)
     target = (d[:, 0] * across + d[:, 1] * down) / radius
-    design = np.stack([across, down, -radius * radius], axis=1) / radius[:, None]
+    design = np.stack([across, down, -squared], axis=1) / radius[:, None]
     weights = np.ones(len(p))
     shift = np.zeros(3)
     for _ in range(5):

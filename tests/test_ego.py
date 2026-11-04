@@ -86,6 +86,15 @@ def test_body_roll_is_not_a_turn() -> None:
     assert turn == pytest.approx(3.0 / CAMERA.focal_px, rel=0.05)
 
 
+def test_points_near_the_foe_still_see_a_turn() -> None:
+    """The floor on a point's distance from the FoE only sets its weight. Used in the roll term too,
+    it read a 3 px turn of points within 20 px of the FoE as 0.002 px."""
+    x = CAMERA.cx + np.linspace(-14.0, 14.0, 8)
+    points = np.stack([x, np.full(8, CAMERA.horizon + 10.0)], axis=1).astype(np.float32)
+    turning = FlowPair(points, points + np.array([-3.0, 0.0], np.float32))
+    assert yaw_step(turning, CAMERA) == pytest.approx(3.0 / CAMERA.focal_px, rel=0.02)
+
+
 def test_series_is_the_same_in_seconds_at_any_frame_rate() -> None:
     """Smoothing windows were in frames, so a 60 fps clip got half the smoothing of a 30 fps one."""
     results = []
