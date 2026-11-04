@@ -321,7 +321,7 @@ function frame(now: number): void {
       lastSegment = readout.segment;
       debug.describe(timeline, readout.segment, world.streetCounts);
     }
-    debug.draw(world, readout.samples, timeline, readout.segment);
+    debug.draw(world, readout.samples, timeline, readout.segment, readout.mount);
     playButton.toggleAttribute("data-playing", playback.playing);
     playButton.setAttribute("aria-label", playback.playing ? "Pause" : "Play");
   }

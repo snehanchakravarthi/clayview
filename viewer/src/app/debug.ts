@@ -31,10 +31,16 @@ export class DebugOverlay {
     }
   }
 
-  draw(world: World, samples: readonly ObjectSample[], timeline: Timeline, segment: number): void {
+  draw(
+    world: World,
+    samples: readonly ObjectSample[],
+    timeline: Timeline,
+    segment: number,
+    mount: number,
+  ): void {
     if (!this.enabled) return;
     this.drawLabels(world, samples);
-    this.drawVideo(samples, timeline.scene.segments[segment]);
+    this.drawVideo(samples, timeline.scene.segments[segment], mount);
     this.drawCost(world);
   }
 
@@ -72,7 +78,11 @@ export class DebugOverlay {
   }
 
   /** Boxes in the video's own coordinates, inside its letterboxed area. */
-  private drawVideo(samples: readonly ObjectSample[], segment: SceneSegment | undefined): void {
+  private drawVideo(
+    samples: readonly ObjectSample[],
+    segment: SceneSegment | undefined,
+    mount: number,
+  ): void {
     const { canvas, video } = this;
     const ratio = Math.min(window.devicePixelRatio, 2);
     const paneWidth = canvas.clientWidth;
@@ -102,6 +112,7 @@ export class DebugOverlay {
       context.strokeStyle = "rgb(255 150 220 / 60%)";
       this.rule(context, left, top + (visibleBottom / video.videoHeight) * height, width);
       context.setLineDash([]);
+      this.drawHeading(context, segment, mount, left, top, height, video.videoWidth, scale);
     }
 
     context.font = "10.5px 'Geist Mono Variable', ui-monospace, monospace";
@@ -121,6 +132,33 @@ export class DebugOverlay {
       context.fillStyle = "#f8f6f1";
       context.fillText(text, boxLeft + 4, boxTop - 3.5);
     }
+  }
+
+  /**
+   * Where the car is heading in the video: the camera's calibrated forward column, moved by its turn
+   * on the mount. On a dashcam it never moves; on a turning head it swings against the glance.
+   */
+  private drawHeading(
+    context: CanvasRenderingContext2D,
+    segment: SceneSegment,
+    mount: number,
+    left: number,
+    top: number,
+    height: number,
+    videoWidth: number,
+    scale: number,
+  ): void {
+    const { centerX, focalPx, horizonFraction } = segment.camera;
+    const column = centerX - focalPx * Math.tan(mount);
+    if (Math.abs(mount) >= Math.PI / 2 || column < 0 || column > videoWidth) return;
+    const x = left + column * scale;
+    const y = top + horizonFraction * height;
+    context.strokeStyle = "rgb(255 220 120 / 90%)";
+    context.lineWidth = 1.5;
+    context.beginPath();
+    context.moveTo(x, y - 9);
+    context.lineTo(x, y + 9);
+    context.stroke();
   }
 
   private rule(context: CanvasRenderingContext2D, left: number, y: number, width: number): void {

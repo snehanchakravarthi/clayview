@@ -1,6 +1,6 @@
 /** The scene file contract, and fast sampling of it at any time. */
 
-export const SCENE_VERSION = 2;
+export const SCENE_VERSION = 3;
 
 export const OBJECT_CLASSES = ["car", "truck", "bus", "motorcycle", "bicycle", "person"] as const;
 export type ObjectClass = (typeof OBJECT_CLASSES)[number];
@@ -23,7 +23,11 @@ export interface SceneFrame {
   frame: number;
   t: number;
   segment: number;
-  ego: { speed: number; yaw: number; pose: ScenePose };
+  /**
+   * `yaw` is the car's turn to the next frame. `mount` is how far the camera is turned on its mount
+   * relative to the car, positive right: 0 on a dashcam, not on a phone in a hand, a helmet or a head.
+   */
+  ego: { speed: number; yaw: number; mount: number; pose: ScenePose };
   objects: SceneObject[];
 }
 
@@ -173,6 +177,7 @@ export interface Timeline {
   poseY: Float64Array;
   /** Unwrapped within a shot, so interpolation never spins the long way round. */
   poseYaw: Float64Array;
+  mount: Float32Array;
   duration: number;
   cuts: number[];
 }
@@ -203,6 +208,8 @@ export interface EgoSample {
   pose: EgoPose;
   /** Ego's yaw eased over a moment, for a camera that leans into turns instead of snapping. */
   easedYaw: number;
+  /** The video camera's yaw on its mount, relative to the car. It looks along pose.yaw + mount. */
+  mount: number;
 }
 
 export class SceneError extends Error {}
@@ -249,6 +256,7 @@ export function buildTimeline(scene: SceneFile): Timeline {
   const poseX = new Float64Array(count);
   const poseY = new Float64Array(count);
   const poseYaw = new Float64Array(count);
+  const mount = new Float32Array(count);
 
   const grouped = new Map<number, { t: number; object: SceneObject }[]>();
   for (let index = 0; index < count; index++) {
@@ -261,6 +269,7 @@ export function buildTimeline(scene: SceneFile): Timeline {
     poseY[index] = pose[1];
     const sameShot = index > 0 && frames[index - 1]!.segment === frame.segment;
     poseYaw[index] = sameShot ? nearestAngle(pose[2], poseYaw[index - 1]!) : pose[2];
+    mount[index] = frame.ego.mount;
     if (index > 0) {
       const dt = frame.t - frames[index - 1]!.t;
       distance[index] = distance[index - 1]! + speed[index - 1]! * dt;
@@ -318,6 +327,7 @@ export function buildTimeline(scene: SceneFile): Timeline {
     poseX,
     poseY,
     poseYaw,
+    mount,
     duration: scene.metadata.source.duration || times[count - 1]!,
     cuts: scene.segments.slice(1).map((segment) => segment.start),
   };
@@ -420,6 +430,7 @@ export function sampleEgo(timeline: Timeline, t: number): EgoSample {
     segment,
     pose,
     easedYaw: easedYaw(timeline, t, segment, pose.yaw),
+    mount: lerp(timeline.mount[index]!, timeline.mount[next]!, poseMix),
   };
 }
 
