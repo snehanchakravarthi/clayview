@@ -178,8 +178,10 @@ def collect_ground(
         rows = np.arange(first, last)
         world_x = path.x[rows, None] + right_x[rows, None] * offsets
         world_y = path.y[rows, None] + right_y[rows, None] * offsets
+        # The camera looks along the car's heading plus its own turn on the mount.
+        looking = float(ego.yaw[local] + ego.mount[local])
         forward_x, forward_y = to_ego(
-            world_x, world_y, float(ego.x[local]), float(ego.y[local]), float(ego.yaw[local])
+            world_x, world_y, float(ego.x[local]), float(ego.y[local]), looking
         )
         usable = (forward_y > cfg.near_m * 0.7) & (
             np.abs(forward_x) < cfg.max_slope * np.maximum(forward_y, 0.1)
@@ -590,7 +592,7 @@ def build_segment(
 
     for label, frame in zip(maps, frames, strict=True):
         local = frame - segment.start_frame
-        pose = (float(ego.x[local]), float(ego.y[local]), float(ego.yaw[local]))
+        pose = (float(ego.x[local]), float(ego.y[local]), float(ego.yaw[local] + ego.mount[local]))
         ground = _ground_mask(label)
         for kind, x, y, height in uprights_in_frame(label, camera, cfg):
             point = to_world(np.array(x), np.array(y), *pose)

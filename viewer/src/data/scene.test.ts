@@ -22,13 +22,13 @@ function frame(index: number, objects: SceneFrame["objects"]): SceneFrame {
     frame: index,
     t: index * 0.1,
     segment: 0,
-    ego: { speed: 10, yaw: 0, pose: [0, index, 0] },
+    ego: { speed: 10, yaw: 0, mount: 0, pose: [0, index, 0] },
     objects,
   };
 }
 
 function posed(index: number, pose: ScenePose, segment = 0): SceneFrame {
-  return { ...frame(index, []), segment, ego: { speed: 10, yaw: 0, pose } };
+  return { ...frame(index, []), segment, ego: { speed: 10, yaw: 0, mount: 0, pose } };
 }
 
 function car(x: number, y: number, heading = 0): SceneFrame["objects"][number] {
@@ -103,7 +103,7 @@ describe("sampling", () => {
   test("curvature stays zero when barely moving", () => {
     const frames = [0, 1, 2].map((i) => ({
       ...frame(i, []),
-      ego: { speed: 0.5, yaw: 0.05, pose: [0, 0, 0] as ScenePose },
+      ego: { speed: 0.5, yaw: 0.05, mount: 0, pose: [0, 0, 0] as ScenePose },
     }));
     expect(sampleEgo(buildTimeline(sceneFrom(frames)), 0.1).curvature).toBe(0);
   });
@@ -139,6 +139,19 @@ describe("ego pose", () => {
     const frames = [posed(0, [0, 0, 3.1], 0), posed(1, [0, 0, -3.1], 1)];
     const timeline = buildTimeline(sceneFrom(frames));
     expect(timeline.poseYaw[1]).toBeCloseTo(-3.1);
+  });
+
+  test("the camera's turn on its mount is sampled apart from the car's pose", () => {
+    const frames = [0, 1, 2].map((i) => ({
+      ...posed(i, [0, i, 0]),
+      ego: { speed: 10, yaw: 0, mount: [0, 0.4, -0.2][i]!, pose: [0, i, 0] as ScenePose },
+    }));
+    const timeline = buildTimeline(sceneFrom(frames));
+    const glance = sampleEgo(timeline, 0.05);
+    expect(glance.mount).toBeCloseTo(0.2);
+    expect(glance.pose.yaw).toBe(0);
+    sampleEgo(timeline, 0.2);
+    expect(sampleEgo(timeline, 0.05).mount).toBe(glance.mount);
   });
 
   test("the eased yaw lags a turn and stays a pure function of time", () => {

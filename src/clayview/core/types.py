@@ -62,10 +62,15 @@ class Observation:
 
 @dataclass(frozen=True)
 class EgoStep:
-    """Ego motion between two consecutive processed frames. Positive yaw turns right."""
+    """Ego motion between two consecutive processed frames. Positive yaw turns right.
+
+    `yaw_rad` is the car's turn. `mount_rad` is how far the camera is turned on its mount, relative
+    to the car, at the step's first frame: always 0 for a dashcam, not for a phone, helmet or head.
+    """
 
     forward_m: float = 0.0
     yaw_rad: float = 0.0
+    mount_rad: float = 0.0
 
 
 @dataclass(frozen=True)
