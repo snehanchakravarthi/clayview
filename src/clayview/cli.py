@@ -207,17 +207,27 @@ def _camera_options(args: argparse.Namespace, image_height: int) -> CameraOption
 
 def _link_latest(output: Path, video: Path) -> None:
     """Point out/latest.* at this run, so the viewer can open it with one click."""
+    root = link_root(output)
     for name, target in (
         ("latest.scene.json", output.resolve()),
         (f"latest{video.suffix}", video.resolve()),
     ):
-        link = output.parent / name
+        link = root / name
         if link.resolve() == target and link.is_symlink():
             continue
-        for stale in output.parent.glob(f"{link.stem}*"):
+        for stale in root.glob(f"{link.stem}*"):
             if stale.is_symlink() and (name.endswith(".json") == stale.name.endswith(".json")):
                 stale.unlink()
         link.symlink_to(target)
+
+
+def link_root(output: Path) -> Path:
+    """Where the latest.* links go: the `out/` folder the viewer serves, even for out/eval/ runs.
+
+    Output written anywhere else gets its links beside it.
+    """
+    folder = output.resolve().parent
+    return folder.parent if folder.parent.name == "out" else folder
 
 
 if __name__ == "__main__":
