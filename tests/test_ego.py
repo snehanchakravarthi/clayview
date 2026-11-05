@@ -2,7 +2,13 @@ import numpy as np
 import pytest
 
 from clayview.core.camera import Camera
-from clayview.core.ego import estimate_ego_series, road_speeds, speed_from_points, yaw_step
+from clayview.core.ego import (
+    estimate_ego_series,
+    road_speeds,
+    scene_expansion,
+    speed_from_points,
+    yaw_step,
+)
 from clayview.core.types import FlowPair
 
 CAMERA = Camera(1920, 1080, height_m=1.2, vfov_deg=60.0, horizon_y=620.0)
@@ -168,3 +174,107 @@ def test_lane_lines_and_shadows_do_not_drag_speed_down() -> None:
     pair = FlowPair(prev.astype(np.float32), next_.astype(np.float32))
     speeds = road_speeds(pair, camera, 1.0 / 14.2)
     assert speed_from_points(speeds) == pytest.approx(32.0, rel=0.05)
+
+
+def scenery(forward_m: float, rng: np.random.Generator, count: int = 60) -> FlowPair:
+    """Trees and poles beside and above the road, seen from two positions forward_m apart."""
+    x = rng.choice([-1.0, 1.0], count) * rng.uniform(4.0, 15.0, count)
+    z = rng.uniform(2.0, 10.0, count)  # height above the road
+    y = rng.uniform(15.0, 60.0, count)
+
+    def project(depth: np.ndarray) -> np.ndarray:
+        column = CAMERA.cx + CAMERA.focal_px * x / depth
+        row = CAMERA.horizon + CAMERA.focal_px * (CAMERA.height_m - z) / depth
+        return np.stack([column, row], axis=1)
+
+    return FlowPair(project(y).astype(np.float32), project(y - forward_m).astype(np.float32))
+
+
+def glass(rng: np.random.Generator, count: int = 120) -> FlowPair:
+    """Raindrops over the road band: they stay put, give or take a little sliding."""
+    prev = np.stack([rng.uniform(200, 1700, count), rng.uniform(700, 1000, count)], axis=1)
+    next_ = prev + rng.normal(0.0, 0.15, prev.shape)
+    return FlowPair(prev.astype(np.float32), next_.astype(np.float32))
+
+
+def combine(*pairs: FlowPair) -> FlowPair:
+    return FlowPair(
+        np.concatenate([pair.prev for pair in pairs]), np.concatenate([pair.next for pair in pairs])
+    )
+
+
+def test_scene_above_the_road_says_whether_ego_moves() -> None:
+    rng = np.random.default_rng(5)
+    moving = scene_expansion(scenery(0.5, rng), CAMERA, DT)
+    still = scene_expansion(scenery(0.0, rng), CAMERA, DT)
+    assert moving is not None and still is not None
+    assert moving[0] > 0.9 and moving[1] > 0.1  # share expanding, and rate per second
+    assert still[0] < 0.1 and abs(still[1]) < 0.01
+    assert scene_expansion(glass(rng), CAMERA, DT) is None  # nothing above the road
+
+
+def test_rain_on_the_glass_is_not_a_stop() -> None:
+    """On wintry_wipers raindrops over the road band outnumbered the trackable asphalt for seconds
+    at a time and ego read 0 to 4 km/h at highway speed, while the trees above the horizon kept
+    expanding away from the FoE."""
+    rng = np.random.default_rng(6)
+    forward_m = 0.5  # 15 m/s
+    pairs = []
+    for index in range(120):
+        road = ground_pair(forward_m, seed=index)
+        if 30 <= index < 90:  # two seconds where the glass hides all but a few road points
+            road = FlowPair(road.prev[:10], road.next[:10])
+            road = combine(road, glass(rng))
+        pairs.append(combine(road, scenery(forward_m, rng)))
+    times = [index * DT for index in range(121)]
+    steps, _ = estimate_ego_series(pairs, times, CAMERA)
+    speeds = np.array([step.forward_m for step in steps]) / DT
+    assert np.all(speeds[30:90] > 12.0)
+
+
+def test_a_wiper_sweep_while_stopped_is_not_motion() -> None:
+    """Stopped in the rain: the road and the scenery stand still, and a wiper drags a third of the
+    points sideways for a few frames every second. The scene's share is a median over a second, so
+    a sweep doesn't make ego move. (A sweep in the clip's very first frames does read as a brief
+    roll-off from about 5 m/s, on main too: the median filter has nothing before it to outvote
+    it.)"""
+    rng = np.random.default_rng(7)
+    pairs = []
+    for index in range(120):
+        pair = combine(ground_pair(0.0, seed=index), scenery(0.0, rng), glass(rng))
+        if 12 <= index % 30 < 18:
+            under = rng.random(len(pair.prev)) < 0.35
+            sweep = np.where(under[:, None], [[60.0, 15.0]], 0.0) + rng.normal(
+                0, 4, pair.prev.shape
+            )
+            pair = FlowPair(pair.prev, (pair.next + sweep * under[:, None]).astype(np.float32))
+        pairs.append(pair)
+    times = [index * DT for index in range(121)]
+    steps, _ = estimate_ego_series(pairs, times, CAMERA)
+    speeds = np.array([step.forward_m for step in steps]) / DT
+    assert np.all(speeds < 0.5)
+
+
+def test_creeping_past_near_scenery_is_not_discarded() -> None:
+    """Expansion proves motion, not a minimum speed. Creeping at 1 m/s past scenery 8 to 15 m away,
+    the scene expands at about 0.1 /s, well above the moving threshold, and the road's consistent
+    1 m/s is right: a fixed 1.5 m/s floor threw every reading away and the shot read as a stop."""
+    rng = np.random.default_rng(8)
+    forward_m = 1.0 * DT
+    pairs = []
+    for index in range(120):
+        x = rng.choice([-1.0, 1.0], 60) * rng.uniform(3.0, 6.0, 60)
+        z = rng.uniform(2.0, 5.0, 60)
+        y = rng.uniform(8.0, 15.0, 60)
+
+        def project(depth: np.ndarray, x=x, z=z) -> np.ndarray:
+            column = CAMERA.cx + CAMERA.focal_px * x / depth
+            row = CAMERA.horizon + CAMERA.focal_px * (CAMERA.height_m - z) / depth
+            return np.stack([column, row], axis=1)
+
+        near = FlowPair(project(y).astype(np.float32), project(y - forward_m).astype(np.float32))
+        pairs.append(combine(ground_pair(forward_m, seed=index), near))
+    times = [index * DT for index in range(121)]
+    steps, _ = estimate_ego_series(pairs, times, CAMERA)
+    speeds = np.array([step.forward_m for step in steps]) / DT
+    assert np.all(np.abs(speeds[10:-10] - 1.0) < 0.2)

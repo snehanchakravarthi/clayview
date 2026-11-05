@@ -32,6 +32,17 @@ class EgoConfig:
     max_speed_mps: float = 55.0
     # Points this close to the FoE say little about rotation; the floor keeps them from dominating.
     min_ray_px: float = 20.0
+    # Whether ego moves at all is read from the scene off the road, which rain, wipers and a wet
+    # road's reflections don't touch. A static point expands away from the FoE at v / depth per
+    # second, so expansion proves motion but not a speed: creeping at 1 m/s past trees 10 m away
+    # expands as fast as 10 m/s past trees 100 m away.
+    scene_min_rate: float = 0.05  # per second
+    scene_moving_share: float = 0.5  # share of off-road points expanding that means ego moves
+    scene_min_ray_fraction: float = 0.05  # of the image height; nearer the FoE is too little flow
+    scene_half_s: float = 0.5  # the share is a median over this long each side, past a wiper
+    # A road reading v, with the scene expanding at a median rate e, puts the scenery v / e away.
+    # Under this, the scenery would be nearer than anything beside a road: the road band is glass.
+    scene_min_depth_m: float = 4.0
 
 
 def yaw_step(pair: FlowPair, camera: Camera, config: EgoConfig | None = None) -> float | None:
@@ -141,6 +152,33 @@ def _radial(pair: FlowPair, camera: Camera, cfg: EgoConfig) -> np.ndarray:
     return (length < cfg.radial_min_px) | (cos >= cfg.radial_min_cos)
 
 
+def scene_expansion(
+    pair: FlowPair, camera: Camera, dt: float, config: EgoConfig | None = None
+) -> tuple[float, float] | None:
+    """Share of the points above the road that expand away from the FoE, and their median rate of
+    expansion per second, or None if there are too few.
+
+    Driving forward, every static point flows away from the FoE at v / depth per second. Stopped,
+    nothing does, whatever ego's rotation. The points come from above the horizon: trees, poles and
+    buildings. Raindrops sit on the glass there too, but the road band is where a wet windshield
+    beats the texture: on wintry_wipers, trees 130 px above the FoE flowed 1.7 px a frame while the
+    road band 90 to 170 px below it, nearer than the trees and so faster, read a median of 0.1 px.
+    """
+    cfg = config or EgoConfig()
+    above = pair.prev[:, 1] < camera.horizon - cfg.near_band_fraction * camera.image_height
+    if int(above.sum()) < cfg.min_points:
+        return None
+    shift = rotation_shift(pair, camera, cfg) or (0.0, 0.0)
+    outward = pair.prev[above].astype(float) - np.array([camera.cx, camera.horizon])
+    flow = (pair.next[above] - pair.prev[above]).astype(float) - shift
+    squared = np.einsum("ij,ij->i", outward, outward)
+    far = squared > (cfg.scene_min_ray_fraction * camera.image_height) ** 2
+    if int(far.sum()) < cfg.min_points:
+        return None
+    rate = np.einsum("ij,ij->i", flow[far], outward[far]) / squared[far] / max(dt, 1e-3)
+    return float(np.mean(rate > cfg.scene_min_rate)), float(np.median(rate))
+
+
 def speed_from_points(speeds: np.ndarray, config: EgoConfig | None = None) -> float | None:
     """Ego speed from pooled per-point speeds, ignoring anything stuck to the windshield.
 
@@ -189,6 +227,7 @@ def estimate_ego_series(
     point_speeds = [road_speeds(pair, camera, dts[i], cfg) for i, pair in enumerate(pairs)]
     frame_dt = float(np.median([dt for dt in dts if dt > 0])) if count > 1 else 1.0 / 30.0
     pool = round(cfg.pool_s / frame_dt)
+    floor = _scene_floor(pairs, dts, frame_dt, camera, cfg)
     yaw = np.full(count, np.nan)
     speed = np.full(count, np.nan)
     for index, pair in enumerate(pairs):
@@ -198,8 +237,11 @@ def estimate_ego_series(
         start = max(index - pool, 0)
         pooled = np.concatenate(point_speeds[start : index + pool + 1])
         measured = speed_from_points(pooled, cfg)
-        if measured is not None and -2.0 <= measured <= cfg.max_speed_mps:
-            speed[index] = max(measured, 0.0)
+        if measured is None or not -2.0 <= measured <= cfg.max_speed_mps:
+            continue
+        if measured < floor[index]:
+            continue  # the scene moves faster than the road: the road band is glass, not road
+        speed[index] = max(measured, 0.0)
 
     coverage = float(np.isfinite(speed).mean()) if count else 0.0
     smooth_speed = _smooth_series(speed, frame_dt, cfg)
@@ -209,6 +251,31 @@ def estimate_ego_series(
         for i in range(count)
     ]
     return steps, coverage
+
+
+def _scene_floor(
+    pairs: Sequence[FlowPair],
+    dts: Sequence[float],
+    frame_dt: float,
+    camera: Camera,
+    cfg: EgoConfig,
+) -> np.ndarray:
+    """Per pair, the slowest road speed the scene above the road allows, in m/s; 0 if it's still.
+
+    Medians over a second, so a wiper sweep or a frame of tracking junk doesn't move it.
+    """
+    measured = [scene_expansion(pair, camera, dts[i], cfg) for i, pair in enumerate(pairs)]
+    shares = np.array([np.nan if m is None else m[0] for m in measured])
+    rates = np.array([np.nan if m is None else m[1] for m in measured])
+    half = round(cfg.scene_half_s / frame_dt)
+    floor = np.zeros(len(pairs))
+    for index in range(len(pairs)):
+        window = slice(max(index - half, 0), index + half + 1)
+        known = np.isfinite(shares[window])
+        if not known.any() or float(np.median(shares[window][known])) < cfg.scene_moving_share:
+            continue
+        floor[index] = cfg.scene_min_depth_m * max(float(np.median(rates[window][known])), 0.0)
+    return floor
 
 
 def _smooth_series(values: np.ndarray, frame_dt: float, cfg: EgoConfig) -> np.ndarray:
