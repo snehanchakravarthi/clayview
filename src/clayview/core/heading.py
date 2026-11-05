@@ -82,6 +82,13 @@ class HeadingCues:
     view: Sequence[float] | None = None  # image model output, see VIEW_BINS
 
 
+def mount_at(steps: Sequence[EgoStep], frame: int) -> float:
+    """The camera's yaw on its mount at a frame, relative to the car."""
+    if not steps:
+        return 0.0
+    return steps[min(frame, len(steps) - 1)].mount_rad
+
+
 class EgoPath:
     """Ego's path through one shot. Frames are absolute, the frame is ego's at `start_frame`."""
 
@@ -100,6 +107,8 @@ class EgoPath:
         self.yaw = yaw
         self.x = x
         self.y = y
+        # The camera's yaw on its mount, relative to the car. The camera looks along yaw + mount.
+        self.mount = np.array([mount_at(steps, start_frame + index) for index in range(count)])
 
     def yaw_at(self, frame: int) -> float:
         return float(self.yaw[self._index(frame)])

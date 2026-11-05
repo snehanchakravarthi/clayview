@@ -30,11 +30,12 @@ from clayview.core.horizon import (
     vehicle_height_for_horizon,
     vehicle_samples,
 )
+from clayview.core.mount import separate_mount
 from clayview.core.projection import ProjectionConfig, box_pad_px
 from clayview.core.tracks import Segment, TrackConfig, Views, WorldTrack, build_tracks
 from clayview.core.types import Detection, EgoStep, FlowPair
 
-SCENE_VERSION = 2
+SCENE_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -185,7 +186,8 @@ def build_scene(
 
     segments: list[Segment] = []
     calibrations: list[Calibration] = []
-    ego_steps: list[EgoStep] = [EgoStep() for _ in range(max(frame_count - 1, 0))]
+    # One per frame: the last frame of each shot has no motion, but it still has a mount angle.
+    ego_steps: list[EgoStep] = [EgoStep() for _ in range(frame_count)]
     coverage: list[float] = []
 
     for index in range(len(boundaries) - 1):
@@ -206,6 +208,7 @@ def build_scene(
             coverage.append(1.0)
         elif opts.use_ego_motion:
             steps, covered = estimate_ego_series(pairs, shot_times, calibration.camera)
+            steps = split_mount(steps, shot_times)
             ego_steps[start : start + len(steps)] = steps
             coverage.append(covered)
         else:
@@ -223,6 +226,25 @@ def build_scene(
     scene = _to_json(raw, segments, calibrations, coverage, ego_steps, tracks, opts)
     scene["world"] = world_builder(segments, ego_steps) if world_builder else None
     return scene
+
+
+def split_mount(steps: Sequence[EgoStep], times: Sequence[float]) -> list[EgoStep]:
+    """The camera's turns, split into the car's and the mount's: one step per frame of the shot.
+
+    Flow measures the camera's yaw, which on a hand-held or worn camera isn't the car's. See
+    `core/mount.py`. The extra last step carries no motion, only the last frame's mount angle.
+    """
+    if not steps:
+        return [EgoStep()]
+    dts = np.maximum(np.diff(np.asarray(times[: len(steps) + 1], dtype=float)), 1e-3)
+    camera = np.array([step.yaw_rad for step in steps])
+    speed = np.array([step.forward_m for step in steps]) / dts
+    vehicle, mount = separate_mount(camera, speed, dts)
+    split = [
+        EgoStep(step.forward_m, float(vehicle[index]), float(mount[index]))
+        for index, step in enumerate(steps)
+    ]
+    return [*split, EgoStep(mount_rad=float(mount[-1]))]
 
 
 def _round(value: float, digits: int = 2) -> float:
@@ -302,6 +324,7 @@ def _to_json(
                 "ego": {
                     "speed": _round(speeds[index]),
                     "yaw": _round(step.yaw_rad, 5),
+                    "mount": _round(step.mount_rad, 4),
                     "pose": poses[index],
                 },
                 "objects": objects,

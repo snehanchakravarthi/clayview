@@ -153,3 +153,27 @@ def test_car_can_stitch_to_truck_but_not_to_person() -> None:
     person = track(3, range(36, 70), still(2.0, 20.0), "person")
     assert len(stitch_fragments([first, truck], TIMES, 1.0)) == 1
     assert len(stitch_fragments([first, person], TIMES, 1.0)) == 2
+
+
+def test_a_camera_turning_on_its_mount_does_not_move_what_it_sees() -> None:
+    """A head-worn camera glances 30 degrees right and back while the car stands. A parked car seen
+    in the camera's frame swings across the view; in the car's frame it has to stay put."""
+
+    def mount(frame: int) -> float:
+        return 0.5 * min(max((frame - 30) / 15, 0.0), 1.0) * min(max((90 - frame) / 15, 0.0), 1.0)
+
+    def seen(frame: int) -> tuple[float, float]:
+        angle = mount(frame)
+        x, y = 6.0, 20.0
+        return (
+            math.cos(angle) * x - math.sin(angle) * y,
+            math.sin(angle) * x + math.cos(angle) * y,
+        )
+
+    steps = [EgoStep(mount_rad=mount(frame)) for frame in range(FRAMES)]
+    turned = build_tracks(track(1, range(0, 120), seen), TIMES, SEGMENTS, steps)
+    ahead = build_tracks(track(1, range(0, 120), still(6.0, 20.0)), TIMES, SEGMENTS, no_ego())
+    assert len(turned) == len(ahead) == 1
+    for sample, expected in zip(turned[0].samples, ahead[0].samples, strict=True):
+        assert sample.x == pytest.approx(expected.x, abs=0.3)
+        assert sample.y == pytest.approx(expected.y, abs=0.6)
