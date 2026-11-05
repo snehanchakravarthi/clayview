@@ -24,6 +24,8 @@ export interface WorldReadout {
   objects: number;
   segment: number;
   samples: readonly ObjectSample[];
+  /** The video camera's yaw on its mount, relative to the car. */
+  mount: number;
 }
 
 /** Everything in the clay pane. The app gives it a time; it draws that instant. */
@@ -120,6 +122,7 @@ export class World {
         objects: this.samples.length,
         segment: ego.segment,
         samples: this.samples,
+        mount: ego.mount,
       };
     } else if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
       this.orbit(dt);

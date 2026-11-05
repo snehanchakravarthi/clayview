@@ -50,6 +50,7 @@ src/clayview/
     projection.py  box to road plane; ground and size-prior fusion
     smoother.py    ego-compensated Kalman filter, RTS pass
     ego.py         ego speed and yaw from road flow
+    mount.py       the car's yaw apart from the camera turning on its mount
     horizon.py     per-shot calibration: FoE, car widths, hood row
     cuts.py        hard-cut detection
     heading.py     heading from box shape, motion, ego's path and car views
