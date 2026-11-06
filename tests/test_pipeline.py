@@ -54,3 +54,13 @@ def test_reused_detections_point_at_the_video_as_it_is_now(tmp_path: Path) -> No
     assert loaded.video.path == str(here)
     assert loaded.video.width == old.width
     assert load_raw(path, "other key", here) is None
+
+
+def test_latest_links_go_where_the_viewer_looks(tmp_path: Path) -> None:
+    """Eval runs wrote out/eval/latest.*, but "Open latest" only reads out/latest.*."""
+    from clayview.cli import link_root
+
+    out = tmp_path / "out"
+    assert link_root(out / "clip.scene.json") == out
+    assert link_root(out / "eval" / "clip.scene.json") == out
+    assert link_root(tmp_path / "elsewhere" / "clip.scene.json") == tmp_path / "elsewhere"
